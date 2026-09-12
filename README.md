@@ -14,6 +14,8 @@ mern-app/
 │   └── .env.example
 └── frontend/          React app (Vite)
     ├── src/
+    |── components/
+    |── pages/
     │   ├── App.jsx
     │   ├── api.js
     │   ├── main.jsx
