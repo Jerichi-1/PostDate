@@ -1,42 +1,64 @@
-import { useEffect, useState } from "react";
-import { Routes, Route, Link } from "react-router-dom";
+/**
+ * App — the route table for the whole frontend.
+ *
+ * 🎛️ ADD A PAGE
+ *   1. create it in src/pages/
+ *   2. import it here
+ *   3. add a <Route path="/your-path" element={<YourPage />} />
+ *
+ * 🔌 BACKEND / AUTH
+ *   The admin route is open to anyone right now. Once login exists, wrap the
+ *   protected routes in a guard — see the RequireAuth sketch at the bottom.
+ */
+import { Routes, Route, Navigate } from "react-router-dom";
 
-import api from "./api";
+import Home from "./pages/Home";
+import Signup from "./pages/Signup";
+import Discover from "./pages/Discover";
+import Profile from "./pages/Profile";
+import AdminDashboard from "./pages/AdminDashboard";
+
 import "./App.css";
 
-import Navbar from "./components/Navbar";
-import Signup from "./pages/signup";
-
 function App() {
-  const [status, setStatus] = useState("Checking connection...");
-
-  useEffect(() => {
-    api
-      .get("/")
-      .then(() => setStatus("Connected to backend ✅"))
-      .catch(() =>
-        setStatus("Could not reach the backend. Is the server running?")
-      );
-  }, []);
-
   return (
     <Routes>
-      <Route
-        path="/"
-        element={
-          <div className="page-container">
-            <Navbar />
-
-            <main>
-              <Link to="/signup">CREATE PROFILE</Link>
-            </main>
-          </div>
-        }
-      />
-
+      {/* ── public ────────────────────────────────────────────────────── */}
+      <Route path="/" element={<Home />} />
       <Route path="/signup" element={<Signup />} />
+
+      {/* ── signed in ─────────────────────────────────────────────────── */}
+      <Route path="/discover" element={<Discover />} />
+      <Route path="/profile" element={<Profile />} />
+
+      {/* ── staff ─────────────────────────────────────────────────────────
+          One page, two roles. "admin" shows all nine sidebar sections;
+          "moderator" shows the shorter six-item list. */}
+      <Route path="/admin" element={<AdminDashboard role="admin" />} />
+      <Route path="/moderator" element={<AdminDashboard role="moderator" />} />
+
+      {/* Anything unrecognised goes home rather than showing a blank page. */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
 
 export default App;
+
+/* 🔌 BACKEND — protecting routes once login is built:
+ *
+ *   function RequireAuth({ role, children }) {
+ *     const user = useCurrentUser();                  // your auth hook
+ *     if (!user) return <Navigate to="/login" replace />;
+ *     if (role && user.role !== role) return <Navigate to="/" replace />;
+ *     return children;
+ *   }
+ *
+ *   <Route path="/admin" element={
+ *     <RequireAuth role="admin"><AdminDashboard role="admin" /></RequireAuth>
+ *   } />
+ *
+ * "/discover" and "/profile" want the same treatment (wrap in <RequireAuth>
+ * with no role) once accounts exist — right now anyone can open them, same
+ * as "/admin" until login lands.
+ */
