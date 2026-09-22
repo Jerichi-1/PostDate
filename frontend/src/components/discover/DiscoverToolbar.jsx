@@ -3,8 +3,9 @@ import { useState } from "react";
 /**
  * DiscoverToolbar
  * The search bar + Filters button above the card grid. Matches the Figma's
- * two distinct pieces: a wide tan search field, and a smaller cream bordered
- * button beside it.
+ * layered look: a maroon rounded frame sits behind everything (with a bit of
+ * padding showing all the way round), holding a wide tan search field on the
+ * left and a smaller cream bordered button on the right.
  *
  * 🔍 CONFIDENCE NOTE: the Figma has no filter panel content — just the button.
  * I gave it a dropdown with the three fields the cards themselves show
@@ -37,14 +38,21 @@ export default function DiscoverToolbar({
       <style>{`
         .dtoolbar {
           position: relative;
+          flex: none;
           display: flex;
           gap: clamp(10px, 1.4vw, 22px);
           align-items: center;
+
+          /* Figma: Rectangle 90 — the maroon frame behind the search field
+             and Filters button, ~10-13px of it showing as padding all round. */
+          background: var(--pd-maroon);
+          border-radius: var(--pd-radius);
+          padding: clamp(6px, 0.9vw, 11px) clamp(8px, 1.1vw, 14px);
         }
 
         .dtoolbar-search {
           flex: 1 1 auto;
-          max-width: 684px;         /* 🎛️ matches the Figma's search bar width */
+          width: clamp(200px, 32vw, 684px);   /* 🎛️ matches the Figma's search bar width */
           display: flex;
           align-items: center;
           gap: 10px;

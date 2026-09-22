@@ -1,30 +1,32 @@
 /**
  * PageBanner
- * The big rounded maroon banner used as a page title inside the app (the
- * Figma's "HOME" pill above the search bar). Reused wherever a page needs
- * the same treatment.
+ * The page title above the search/filter toolbar (the Figma's "HOME"
+ * heading). It's plain bold white text straight on the pink page
+ * background — there's no card/pill behind it. (An earlier version of this
+ * component wrapped it in a maroon rounded box, which doesn't match the
+ * Figma: the only maroon rounded box on this row lives behind the search
+ * bar, not the title — see DiscoverToolbar.)
  *
  * Usage:
  *   <PageBanner>Home</PageBanner>
  */
 export default function PageBanner({ children }) {
   return (
-    <div className="pbanner">
+    <h1 className="pbanner">
       <style>{`
         .pbanner {
-          background: var(--pd-maroon);
-          border-radius: var(--pd-radius);
-          padding: clamp(14px, 2vw, 24px) clamp(20px, 3vw, 40px);  /* 🎛️ banner size */
-          max-width: 938px;   /* 🎛️ matches the Figma's banner width */
+          margin: 0;
+          flex: none;
 
           font-family: var(--pd-mono);
           font-weight: 700;
-          font-size: clamp(22px, 3.4vw, 56px);   /* 🎛️ heading text size */
+          font-size: clamp(6px, 4.6vw, 40px);   /* 🎛️ heading text size */
           line-height: 1.15;
+          text-transform: uppercase;
           color: var(--pd-white);
         }
       `}</style>
       {children}
-    </div>
+    </h1>
   );
 }
