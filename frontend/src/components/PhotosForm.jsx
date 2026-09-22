@@ -4,6 +4,8 @@ import StampCardShell from "./StampCardShell";
 /**
  * PhotosForm
  * Step 2 of the signup flow: drag-and-drop (or click-to-browse) photo upload.
+ * The drop zone stretches to fill whatever room is left inside the fixed-size
+ * stamp card. Sizes are `calc(<Figma px> * var(--u))`, see pages/Signup.jsx.
  *
  * Usage:
  *   <PhotosForm onContinue={(files) => console.log(files)} />
@@ -73,38 +75,41 @@ export default function PhotosForm({ step = 2, totalSteps = 3, minPhotos = 1, on
     >
       <style>{`
         .photos-field-group {
+          flex: 1;
+          min-height: 0;
           display: flex;
           flex-direction: column;
-          gap: 14px;
+          gap: calc(5 * var(--u));
         }
         .photos-field-label {
-          font-family: 'Space Mono', monospace;
           font-weight: 700;
-          font-size: clamp(18px, 3.4vw, 26px);
-          letter-spacing: 0.02em;
+          font-size: calc(24 * var(--u));
+          line-height: calc(36 * var(--u));
           text-transform: uppercase;
-          color: var(--stamp-ink);
+          color: var(--pd-ink);
         }
 
         .photos-dropzone {
           position: relative;
-          min-height: 300px;
-          background: var(--stamp-tan);
-          border: 2px dashed transparent;
-          border-radius: 5px;
+          flex: 1;
+          min-height: 0;
+          overflow: auto;
+          background: var(--pd-tan);
+          border: calc(2 * var(--u)) dashed transparent;
+          border-radius: calc(5 * var(--u));
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          padding: 20px;
+          padding: calc(16 * var(--u));
           transition: border-color 0.15s ease, background 0.15s ease;
         }
         .photos-dropzone-active {
-          border-color: var(--stamp-maroon);
+          border-color: var(--pd-maroon);
           background: #E7D6C8;
         }
         .photos-dropzone:focus-visible {
-          outline: 2px solid var(--stamp-maroon);
+          outline: 2px solid var(--pd-maroon);
           outline-offset: 3px;
         }
 
@@ -121,26 +126,26 @@ export default function PhotosForm({ step = 2, totalSteps = 3, minPhotos = 1, on
         }
 
         .photos-choose-label {
-          font-family: 'Space Mono', monospace;
           font-weight: 700;
-          font-size: 16px;
+          font-size: calc(20 * var(--u));
           letter-spacing: 0.04em;
           text-transform: uppercase;
-          color: var(--stamp-ink);
+          color: var(--pd-ink);
           opacity: 0.65;
         }
 
         .photos-grid {
           display: flex;
           flex-wrap: wrap;
-          gap: 12px;
+          align-content: flex-start;
+          gap: calc(10 * var(--u));
           width: 100%;
         }
         .photos-thumb {
           position: relative;
-          width: 100px;
-          height: 100px;
-          border-radius: 5px;
+          width: calc(100 * var(--u));
+          height: calc(100 * var(--u));
+          border-radius: calc(5 * var(--u));
           overflow: hidden;
           background: #fff;
         }
@@ -152,15 +157,15 @@ export default function PhotosForm({ step = 2, totalSteps = 3, minPhotos = 1, on
         }
         .photos-thumb-remove {
           position: absolute;
-          top: 4px;
-          right: 4px;
-          width: 20px;
-          height: 20px;
+          top: calc(4 * var(--u));
+          right: calc(4 * var(--u));
+          width: calc(22 * var(--u));
+          height: calc(22 * var(--u));
           border-radius: 50%;
           border: none;
-          background: var(--stamp-maroon);
+          background: var(--pd-maroon);
           color: #fff;
-          font-size: 14px;
+          font-size: calc(16 * var(--u));
           line-height: 1;
           cursor: pointer;
           display: flex;
@@ -168,15 +173,14 @@ export default function PhotosForm({ step = 2, totalSteps = 3, minPhotos = 1, on
           justify-content: center;
         }
         .photos-add-more {
-          width: 100px;
-          height: 100px;
-          border-radius: 5px;
-          border: 2px dashed var(--stamp-maroon);
+          width: calc(100 * var(--u));
+          height: calc(100 * var(--u));
+          border-radius: calc(5 * var(--u));
+          border: calc(2 * var(--u)) dashed var(--pd-maroon);
           background: transparent;
-          color: var(--stamp-ink);
-          font-family: 'Space Mono', monospace;
+          color: var(--pd-ink);
           font-weight: 700;
-          font-size: 11px;
+          font-size: calc(13 * var(--u));
           text-transform: uppercase;
           cursor: pointer;
         }

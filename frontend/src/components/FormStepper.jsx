@@ -1,23 +1,25 @@
 /**
  * FormStepper
- * Horizontal progress indicator for a multi-step signup flow — sits between
- * the navbar and the form. Pairs with WhoAreYouForm.jsx (same color system).
+ * The 1 → 2 → 3 progress bar across the top of the signup page.
  *
- * Usage:
- *   const [step, setStep] = useState(1);
- *   <FormStepper currentStep={step} />
- *   <WhoAreYouForm step={step} totalSteps={3} onContinue={() => setStep(step + 1)} />
+ * It is ONE long bar: it fills whatever width its parent gives it (in
+ * pages/Signup.jsx that is the full width of the stamp card + "Why we ask"
+ * block below it). Step 1 keeps its natural width, steps 2 and 3 split the
+ * rest of the row equally, and each arrow stretches to fill the room its step
+ * has left. That is why the Figma's two arrows are different lengths
+ * (485 / 424) — the arrow into the longer "YOUR TASTE" label gives up room.
  *
- * Layout (matches the Figma): the stepper stretches across the full width of
- * the row below it. Step 1 keeps its natural width; every later step (incoming
- * arrow + circle + label) takes an equal share of what's left, so the arrows
- * flex to fill the gaps. That's why the Figma's arrows differ (484px / 423px):
- * the arrow into the longer "YOUR TASTE" label gives up a bit of room.
+ * Sizes are written as `calc(<Figma px> * var(--u))`. --u ("one Figma pixel")
+ * is set once in pages/Signup.jsx, so this file never needs touching to
+ * rescale the page.
  *
  * Circle states (per step, based on currentStep):
- *   - upcoming (step number > currentStep): cream circle, dark ink number
+ *   - upcoming (step number > currentStep): cream circle, ink number
  *   - active   (step number === currentStep): maroon circle, cream number
- *   - done     (step number < currentStep): dark ink circle, cream number
+ *   - done     (step number < currentStep): ink circle, cream number
+ *
+ * Usage:
+ *   <FormStepper currentStep={step} />
  */
 
 const DEFAULT_STEPS = ["Who are you?", "Photos", "Your taste"];
@@ -26,36 +28,13 @@ export default function FormStepper({ steps = DEFAULT_STEPS, currentStep = 1, ..
   return (
     <nav className="stepper-wrapper" aria-label="Signup progress" {...rest}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@700&family=Space+Mono:wght@700&display=swap');
-
         .stepper-wrapper, .stepper-wrapper *, .stepper-wrapper *::before, .stepper-wrapper *::after {
           box-sizing: border-box;
         }
 
         .stepper-wrapper {
-          --step-maroon: #B33951;
-          --step-cream: #FAF3EE;
-          --step-ink: #2B2320;
-
-          /* 🎛️ TUNE THE STEPPER HERE ------------------------------- */
-          --step-circle: 56px;   /* circle diameter — was 80px, now scaled to match the smaller card */
-          --step-max-width: 812px; /* card col 440 + gap 32 + aside 340 (see Signup.jsx) — keep in sync so the stepper ends flush with the aside */
-          /* ------------------------------------------------------------ */
-
-          font-family: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
           width: 100%;
-          max-width: var(--step-max-width);
-          margin: 0; /* left-anchored — the page wrapper controls horizontal position, not this component */
-          padding: 12px 0; /* no side padding: circle 1 lines up with the card's left edge, last label with the aside's right edge */
-          overflow-x: auto;
-          scrollbar-width: thin;
-          scrollbar-color: rgba(179, 57, 81, 0.35) transparent;
-        }
-        .stepper-wrapper::-webkit-scrollbar { height: 6px; }
-        .stepper-wrapper::-webkit-scrollbar-track { background: transparent; }
-        .stepper-wrapper::-webkit-scrollbar-thumb {
-          background: rgba(179, 57, 81, 0.35);
-          border-radius: 3px;
+          font-family: var(--pd-mono);
         }
 
         .stepper-track {
@@ -69,74 +48,61 @@ export default function FormStepper({ steps = DEFAULT_STEPS, currentStep = 1, ..
         .stepper-item {
           display: flex;
           align-items: center;
-          gap: 10px;
+          min-width: 0;
         }
         /* Step 1 = natural width. Every later step (arrow + circle + label)
            splits the leftover row width equally, which stretches the arrows. */
         .stepper-item:first-child { flex: none; }
         .stepper-item:not(:first-child) { flex: 1 1 0%; }
 
+        /* Figma: Ellipse 68/69/70 = 80 x 80, number is Fraunces 700 36px */
         .stepper-circle {
           flex: none;
-          width: clamp(34px, 7vw, var(--step-circle));
-          height: clamp(34px, 7vw, var(--step-circle));
+          width: calc(80 * var(--u));   /* 🎛️ circle diameter */
+          height: calc(80 * var(--u));
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-family: 'Fraunces', Georgia, serif;
+          font-family: var(--pd-display);
           font-weight: 700;
-          font-size: clamp(14px, 2.6vw, 24px); /* 🎛️ number size inside the circle */
+          font-size: calc(36 * var(--u));   /* 🎛️ number size */
           line-height: 1;
-          transition: background-color 0.2s ease, color 0.2s ease;
         }
+        .stepper-item-upcoming .stepper-circle { background: var(--pd-cream); color: var(--pd-ink); }
+        .stepper-item-active   .stepper-circle { background: var(--pd-maroon); color: var(--pd-cream); }
+        .stepper-item-done     .stepper-circle { background: var(--pd-ink);    color: var(--pd-cream); }
 
-        .stepper-item-upcoming .stepper-circle {
-          background: var(--step-cream);
-          color: var(--step-ink);
-          box-shadow: inset 0 0 0 2px rgba(43, 35, 32, 0.12);
-        }
-        .stepper-item-active .stepper-circle {
-          background: var(--step-maroon);
-          color: var(--step-cream);
-        }
-        .stepper-item-done .stepper-circle {
-          background: var(--step-ink);
-          color: var(--step-cream);
-        }
-
+        /* Figma: Space Mono 700 24px, ink */
         .stepper-label {
+          margin-left: calc(25 * var(--u));
           font-weight: 700;
-          font-size: clamp(10px, 1.3vw, 14px); /* 🎛️ step label size */
-          letter-spacing: 0.04em;
+          font-size: calc(24 * var(--u));   /* 🎛️ step label size */
+          line-height: calc(36 * var(--u));
           text-transform: uppercase;
-          color: var(--step-ink);
           white-space: nowrap;
+          color: var(--pd-ink);
         }
 
+        /* Figma: Arrow 1 / Arrow 2 — 2px ink line with an open arrowhead */
         .stepper-arrow {
           position: relative;
-          flex: 1 1 30px;  /* grows to fill whatever room its step has */
-          min-width: 20px;
-          height: 2px;
-          background: var(--step-ink);
-          margin-left: 12px; /* breathing room after the previous label */
+          flex: 1 1 0;
+          min-width: 0;
+          height: calc(2 * var(--u));
+          margin: 0 calc(20 * var(--u));
+          background: var(--pd-ink);
         }
         .stepper-arrow::after {
           content: "";
           position: absolute;
-          right: -1px;
+          right: calc(2 * var(--u));
           top: 50%;
-          width: 0;
-          height: 0;
-          border-top: 5px solid transparent;
-          border-bottom: 5px solid transparent;
-          border-left: 7px solid var(--step-ink);
-          transform: translateY(-50%);
-        }
-
-        @media (max-width: 520px) {
-          .stepper-arrow { margin-left: 8px; }
+          width: calc(10 * var(--u));
+          height: calc(10 * var(--u));
+          border-top: calc(2 * var(--u)) solid var(--pd-ink);
+          border-right: calc(2 * var(--u)) solid var(--pd-ink);
+          transform: translateY(-50%) rotate(45deg);
         }
       `}</style>
 

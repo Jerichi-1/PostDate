@@ -44,7 +44,7 @@ export default function SiteFooter({ children }) {
         .sitefooter a:hover { border-bottom-color: var(--pd-cream); }
       `}</style>
 
-      {children ?? <span className="sitefooter-mark">footer</span>}
+      {children ?? <span className="sitefooter-mark">POSTDATE<a>™</a></span>}
     </footer>
   );
 }

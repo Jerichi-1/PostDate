@@ -3,9 +3,21 @@ import StampCardShell from "./StampCardShell";
 
 /**
  * WhoAreYouForm
- * Step 1 of the signup flow: name, birthdate, gender, short bio.
- * Chrome (dots, border, header/footer, button) lives in StampCardShell —
- * this file only owns the fields and their validation.
+ * Step 1 of the signup flow, laid out exactly like the Figma:
+ *
+ *   FULL NAME   [first] [middle] [last]
+ *   EMAIL [........]    BIRTHDATE [........]
+ *   PASSWORD [.....]    GENDER [.......  ▾]
+ *   SHORT BIO   [..............................]
+ *
+ * Chrome (perforations, header/footer, button, 1/3 counter) lives in
+ * StampCardShell — this file only owns the fields and their validation.
+ * Sizes are `calc(<Figma px> * var(--u))`, see pages/Signup.jsx.
+ *
+ * 🔌 BACKEND: onContinue receives { firstName, middleName, lastName, email,
+ * password, birthdate, gender, bio }. Email + password are new (they are in
+ * the Figma, and the User model needs them) — the backend should hash the
+ * password and never store it as sent.
  *
  * Usage:
  *   <WhoAreYouForm onContinue={(data) => console.log(data)} />
@@ -21,11 +33,16 @@ const GENDER_OPTIONS = [
   { value: "prefer-not-to-say", label: "Prefer not to say" },
 ];
 
+const MIN_PASSWORD_LENGTH = 8; // 🎛️ shortest password we accept
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) {
   const [values, setValues] = useState({
     firstName: "",
     middleName: "",
     lastName: "",
+    email: "",
+    password: "",
     birthdate: "",
     gender: "",
     bio: "",
@@ -35,13 +52,21 @@ export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) 
   const update = (field) => (e) =>
     setValues((prev) => ({ ...prev, [field]: e.target.value }));
 
-  const isValid =
-    values.firstName.trim() && values.lastName.trim() && values.birthdate.trim();
+  const problems = {
+    firstName: !values.firstName.trim(),
+    lastName: !values.lastName.trim(),
+    email: !EMAIL_PATTERN.test(values.email.trim()),
+    password: values.password.length < MIN_PASSWORD_LENGTH,
+    birthdate: !values.birthdate.trim(),
+  };
+  const isValid = !Object.values(problems).some(Boolean);
+
+  const invalid = (field) => (touched && problems[field] ? "wru-invalid" : "");
 
   const handleContinue = () => {
     setTouched(true);
     if (!isValid) return;
-    onContinue?.(values);
+    onContinue?.({ ...values, email: values.email.trim() });
   };
 
   return (
@@ -54,105 +79,130 @@ export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) 
       error={touched && !isValid ? "Fill in the highlighted fields to continue." : null}
     >
       <style>{`
-        .whoareyou-field-group {
+        /* a label sitting on top of a field */
+        .wru-group {
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: calc(5 * var(--u));
         }
-        .whoareyou-field-label {
-          font-family: 'Space Mono', monospace;
-          font-weight: 700;
-          font-size: 12px; /* 🎛️ field label size */
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-          color: var(--stamp-ink);
-        }
-        .whoareyou-field-row {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-        .whoareyou-field-row input { flex: 1 1 90px; } /* 🎛️ min width before name inputs wrap to a new line */
+        .wru-group-first { gap: 0; }   /* Figma: the name inputs touch their label */
 
+        /* Figma: Space Mono 700 24px */
+        .wru-label {
+          font-weight: 700;
+          font-size: calc(24 * var(--u));   /* 🎛️ field label size */
+          line-height: calc(36 * var(--u));
+          text-transform: uppercase;
+          color: var(--pd-ink);
+        }
+
+        .wru-name-row {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          column-gap: calc(11 * var(--u));
+        }
+        /* two side-by-side fields: email | birthdate, password | gender */
+        .wru-pair {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          column-gap: calc(10 * var(--u));
+        }
+
+        /* Figma: Rectangle 51–55 / 241–242 = 40px tall, tan, radius 5 */
         .stamp-wrapper input,
         .stamp-wrapper select,
         .stamp-wrapper textarea {
-          font-family: 'Space Mono', monospace;
-          font-weight: 700;
-          font-size: 12px; /* 🎛️ input text size */
-          letter-spacing: 0.02em;
-          text-transform: uppercase;
-          color: var(--stamp-ink);
-          background: var(--stamp-tan);
-          border: 2px solid transparent;
-          border-radius: 5px;
-          padding: 9px 11px; /* 🎛️ input height/roominess */
+          display: block;
           width: 100%;
+          height: calc(40 * var(--u));
+          padding: 0 calc(10.5 * var(--u));
+          font-family: var(--pd-mono);
+          font-weight: 700;
+          font-size: calc(20 * var(--u));   /* 🎛️ input text size */
+          text-transform: uppercase;
+          color: var(--pd-ink);
+          background: var(--pd-tan);
+          border: calc(2 * var(--u)) solid transparent;
+          border-radius: calc(5 * var(--u));
         }
         .stamp-wrapper input::placeholder,
         .stamp-wrapper textarea::placeholder {
-          color: #FFFFFF;
-          opacity: 0.95;
+          color: var(--pd-white);
+          opacity: 1;
         }
         .stamp-wrapper input:focus-visible,
         .stamp-wrapper select:focus-visible,
         .stamp-wrapper textarea:focus-visible {
           outline: none;
-          border-color: var(--stamp-maroon);
+          border-color: var(--pd-maroon);
         }
-        .whoareyou-input-invalid { border-color: var(--stamp-maroon) !important; }
+        .stamp-wrapper .wru-invalid { border-color: var(--pd-maroon); }
 
-        .whoareyou-half { max-width: 180px; } /* 🎛️ birthdate field width */
+        /* the three name boxes use small placeholder text that sits low in
+           the box, exactly as drawn (Figma: 14px, ~8px below centre) */
+        .stamp-wrapper .wru-name-row input {
+          padding: calc(16 * var(--u)) calc(5 * var(--u)) 0 calc(4.5 * var(--u));
+          font-size: calc(14 * var(--u));   /* 🎛️ name placeholder size */
+        }
 
-        .whoareyou-select-wrap { position: relative; max-width: 150px; } /* 🎛️ gender field width */
-        .whoareyou-select-wrap select {
+        /* email + password are typed as-is, not shouted */
+        .stamp-wrapper input[type="email"],
+        .stamp-wrapper input[type="password"] { text-transform: none; }
+
+        /* gender dropdown with the maroon triangle */
+        .wru-select-wrap { position: relative; }
+        .stamp-wrapper .wru-select-wrap select {
           appearance: none;
           -webkit-appearance: none;
-          padding-right: 30px;
+          padding-right: calc(34 * var(--u));
           cursor: pointer;
         }
-        .whoareyou-select-wrap::after {
+        .stamp-wrapper .wru-select-empty { color: var(--pd-white); }
+        .stamp-wrapper select option {
+          color: var(--pd-ink);
+          background: var(--pd-white);
+        }
+        .wru-select-wrap::after {
           content: "";
           position: absolute;
-          right: 12px;
-          top: 50%;
+          right: calc(11.5 * var(--u));
+          top: calc(50% - 5 * var(--u));
           width: 0;
           height: 0;
-          border-left: 6px solid transparent;
-          border-right: 6px solid transparent;
-          border-top: 8px solid var(--stamp-maroon);
-          transform: translateY(-35%);
+          border-left: calc(7.5 * var(--u)) solid transparent;
+          border-right: calc(7.5 * var(--u)) solid transparent;
+          border-top: calc(13.5 * var(--u)) solid var(--pd-maroon);
           pointer-events: none;
         }
 
+        /* Figma: Rectangle 56 = 98px tall */
         .stamp-wrapper textarea {
-          min-height: 72px; /* 🎛️ bio box height */
-          resize: vertical;
+          height: calc(98 * var(--u));
+          padding: calc(9 * var(--u)) calc(10.5 * var(--u));
+          font-size: calc(16 * var(--u));
+          line-height: 1.35;
           text-transform: none;
-        }
-        .stamp-wrapper textarea::placeholder { text-transform: none; }
-
-        @media (max-width: 480px) {
-          .whoareyou-field-row { flex-direction: column; }
-          .whoareyou-half, .whoareyou-select-wrap { max-width: 100%; }
+          resize: none;
         }
       `}</style>
 
-      <div className="whoareyou-field-group">
-        <span className="whoareyou-field-label">Full name</span>
-        <div className="whoareyou-field-row">
+      <div className="wru-group wru-group-first">
+        <span className="wru-label">Full name</span>
+        <div className="wru-name-row">
           <input
             type="text"
             placeholder="First name"
             aria-label="First name"
+            autoComplete="given-name"
             value={values.firstName}
             onChange={update("firstName")}
-            className={touched && !values.firstName.trim() ? "whoareyou-input-invalid" : ""}
+            className={invalid("firstName")}
           />
           <input
             type="text"
             placeholder="Middle name"
             aria-label="Middle name"
+            autoComplete="additional-name"
             value={values.middleName}
             onChange={update("middleName")}
           />
@@ -160,54 +210,79 @@ export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) 
             type="text"
             placeholder="Last name"
             aria-label="Last name"
+            autoComplete="family-name"
             value={values.lastName}
             onChange={update("lastName")}
-            className={touched && !values.lastName.trim() ? "whoareyou-input-invalid" : ""}
+            className={invalid("lastName")}
           />
         </div>
       </div>
 
-      <div className="whoareyou-field-group">
-        <label className="whoareyou-field-label" htmlFor="stamp-birthdate">
-          Birthdate
-        </label>
-        <input
-          id="stamp-birthdate"
-          type="text"
-          placeholder="MM/DD/YY"
-          value={values.birthdate}
-          onChange={update("birthdate")}
-          className={`whoareyou-half ${
-            touched && !values.birthdate.trim() ? "whoareyou-input-invalid" : ""
-          }`}
-        />
-      </div>
-
-      <div className="whoareyou-field-group">
-        <label className="whoareyou-field-label" htmlFor="stamp-gender">
-          Gender
-        </label>
-        <div className="whoareyou-select-wrap">
-          <select id="stamp-gender" value={values.gender} onChange={update("gender")}>
-            {GENDER_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+      <div className="wru-pair">
+        <div className="wru-group">
+          <label className="wru-label" htmlFor="stamp-email">Email</label>
+          <input
+            id="stamp-email"
+            type="email"
+            placeholder="you@email.com"
+            autoComplete="email"
+            value={values.email}
+            onChange={update("email")}
+            className={invalid("email")}
+          />
+        </div>
+        <div className="wru-group">
+          <label className="wru-label" htmlFor="stamp-birthdate">Birthdate</label>
+          <input
+            id="stamp-birthdate"
+            type="date"
+            placeholder="MM/DD/YY"
+            value={values.birthdate}
+            onChange={update("birthdate")}
+            className={invalid("birthdate")}
+          />
         </div>
       </div>
 
-      <div className="whoareyou-field-group">
-        <label className="whoareyou-field-label" htmlFor="stamp-bio">
-          Short bio
-        </label>
+      <div className="wru-pair">
+        <div className="wru-group">
+          <label className="wru-label" htmlFor="stamp-password">Password</label>
+          <input
+            id="stamp-password"
+            type="password"
+            placeholder={`${MIN_PASSWORD_LENGTH}+ characters`}
+            autoComplete="new-password"
+            value={values.password}
+            onChange={update("password")}
+            className={invalid("password")}
+          />
+        </div>
+        <div className="wru-group">
+          <label className="wru-label" htmlFor="stamp-gender">Gender</label>
+          <div className="wru-select-wrap">
+            <select
+              id="stamp-gender"
+              value={values.gender}
+              onChange={update("gender")}
+              className={values.gender === "" ? "wru-select-empty" : ""}
+            >
+              {GENDER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="wru-group">
+        <label className="wru-label" htmlFor="stamp-bio">Short bio</label>
         <textarea
           id="stamp-bio"
           placeholder="A couple sentences about you..."
           value={values.bio}
           onChange={update("bio")}
-          rows={4}
         />
       </div>
     </StampCardShell>

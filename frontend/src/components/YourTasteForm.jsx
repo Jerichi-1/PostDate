@@ -21,6 +21,8 @@ const DEFAULT_TASTE_OPTIONS = [
  * Step 3 of the signup flow: pick a minimum number of interest tags.
  * The mockup's blank tag boxes didn't specify labels, so this ships with a
  * reasonable default set — pass your own via the `options` prop.
+ * Sizes are `calc(<Figma px> * var(--u))`, see pages/Signup.jsx. The chips
+ * wrap inside the fixed-size stamp card, so roughly 12–16 tags is the limit.
  *
  * Usage:
  *   <YourTasteForm onConfirm={(tags) => console.log(tags)} />
@@ -61,50 +63,50 @@ export default function YourTasteForm({
         .taste-field-group {
           display: flex;
           flex-direction: column;
-          gap: 16px;
+          gap: calc(8 * var(--u));
         }
         .taste-field-label {
-          font-family: 'Space Mono', monospace;
           font-weight: 700;
-          font-size: clamp(18px, 3.4vw, 26px);
-          letter-spacing: 0.02em;
+          font-size: calc(24 * var(--u));
+          line-height: calc(36 * var(--u));
           text-transform: uppercase;
-          color: var(--stamp-ink);
+          color: var(--pd-ink);
         }
 
         .taste-grid {
           display: flex;
           flex-wrap: wrap;
-          gap: 12px;
+          gap: calc(10 * var(--u));
         }
         .taste-chip {
-          font-family: 'Space Mono', monospace;
+          font-family: var(--pd-mono);
           font-weight: 700;
-          font-size: 14px;
+          font-size: calc(15 * var(--u));
+          line-height: 1;
           letter-spacing: 0.02em;
           text-transform: uppercase;
-          color: var(--stamp-ink);
-          background: var(--stamp-tan);
-          border: 2px solid transparent;
-          border-radius: 5px;
-          padding: 13px 18px;
+          color: var(--pd-ink);
+          background: var(--pd-tan);
+          border: calc(2 * var(--u)) solid transparent;
+          border-radius: calc(5 * var(--u));
+          padding: calc(13 * var(--u)) calc(16 * var(--u));
           cursor: pointer;
           transition: background 0.15s ease, color 0.15s ease;
         }
         .taste-chip:hover { background: #E7D6C8; }
         .taste-chip:focus-visible {
-          outline: 2px solid var(--stamp-maroon);
+          outline: 2px solid var(--pd-maroon);
           outline-offset: 2px;
         }
         .taste-chip-active {
-          background: var(--stamp-maroon);
-          color: var(--stamp-cream);
+          background: var(--pd-maroon);
+          color: var(--pd-cream);
         }
 
         .taste-count {
-          font-size: 12px;
+          font-size: calc(14 * var(--u));
           letter-spacing: 0.02em;
-          color: var(--stamp-ink);
+          color: var(--pd-ink);
           opacity: 0.6;
         }
       `}</style>
