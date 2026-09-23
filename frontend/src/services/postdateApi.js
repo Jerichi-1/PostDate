@@ -26,15 +26,26 @@
    by the MOCK_ constant at the bottom. Match that shape and the page renders
    with zero component changes. If the backend shape ends up different, map it
    right here (e.g. `return { ...data, fullName: data.name }`) rather than
-   editing the components.
+   editing components.
+
+   WHERE THINGS CURRENTLY STAND: submitSignup, loginUser, sendVerificationCode
+   and verifyCode are REAL — they call backend/controllers/authController.js
+   against Mongo. Everything else below the EMAIL VERIFICATION section
+   (recovery, discover, profile, admin) is still mock data/behaviour.
    ========================================================================== */
 
 import api from "../api";
 
 /* Tiny helper so mock data behaves like a real network call (async + a beat of
-   latency). Delete it once every function is hooked up to the backend. */
+   latency). Only the still-mocked functions below use it. */
 const delay = (value, ms = 220) =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
+
+/* VerificationModal calls sendVerificationCode()/verifyCode() with no
+   arguments (see components/VerificationModal.jsx), so this remembers which
+   account submitSignup() just created and is currently mid-verification —
+   see the EMAIL VERIFICATION section below for where it's read. */
+let pendingVerificationEmail = "";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    HOME / LANDING PAGE
@@ -56,25 +67,24 @@ export async function getLandingStats() {
    ───────────────────────────────────────────────────────────────────────── */
 
 /**
- * Creates the account. `photos` are File objects, so this posts multipart —
- * the backend needs multer (or similar) on this route.
+ * Creates the account. The server hashes the password and creates the
+ * account unverified — pages/Signup.jsx opens VerificationModal right after
+ * this resolves, and log-in refuses anyone who hasn't gotten through it (see
+ * loginUser below).
  * @route  POST /api/signup
- * @param  {{ firstName, middleName, lastName, birthdate, gender, bio,
- *            photos: File[], tags: string[] }} signup
- * @returns {{ userId: string, token?: string }}
+ * @param  {{ firstName, middleName, lastName, email, password, birthdate,
+ *            gender, bio, photos: File[], tags: string[] }} signup
+ * @returns {{ userId: string }}
+ * 🔌 Photos aren't sent yet — there's no file-storage service picked (same
+ * situation as the email service below: nothing to plug them into yet).
+ * Once there is: add multer (or similar) on this route, and switch this back
+ * to posting FormData with the photo files included.
  */
 export async function submitSignup(signup) {
-  // const form = new FormData();
-  // Object.entries(signup).forEach(([key, value]) => {
-  //   if (key === "photos") value.forEach((file) => form.append("photos", file));
-  //   else if (key === "tags") form.append("tags", JSON.stringify(value));
-  //   else form.append(key, value);
-  // });
-  // const { data } = await api.post("/signup", form);
-  // return data;
-
-  console.log("[postdateApi] submitSignup received:", signup);
-  return delay({ userId: "mock-user-1" });
+  const { photos, ...body } = signup;
+  const { data } = await api.post("/signup", body);
+  pendingVerificationEmail = signup.email.trim().toLowerCase();
+  return data;
 }
 
 /**
@@ -87,6 +97,110 @@ export async function getTasteOptions() {
   // const { data } = await api.get("/tags");
   // return data;
   return delay(MOCK_TASTE_OPTIONS);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   EMAIL VERIFICATION  (components/VerificationModal.jsx — shown right after
+   signup finishes, and it's mandatory: see the note above <VerificationModal>
+   in pages/Signup.jsx for what that means)
+   ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Emails a one-time code to the account that just signed up. The modal calls
+ * this itself the moment it opens, and again if the person hits "Send a new
+ * code" after the timer runs out.
+ * @route  POST /api/verify/send
+ * @returns {{ expiresIn: number }}  seconds the code stays valid — what the
+ *          modal's countdown starts from
+ * 🧪 TEMP: nothing is actually emailed yet — the backend always accepts
+ * "0000" (see TEMP_VERIFY_CODE in authController.js) until an email service
+ * is picked. This call is still real; only the code itself is fake.
+ */
+export async function sendVerificationCode() {
+  const { data } = await api.post("/verify/send", { email: pendingVerificationEmail });
+  return data;
+}
+
+/**
+ * Checks the code the person typed into the modal.
+ * @route  POST /api/verify/confirm
+ * @param  {string} code
+ * @returns {{ verified: boolean, userId?: string, role?: string }}
+ * 🧪 TEMP: the only code that works right now is "0000" — matches the
+ * `codeLength={4}` on <VerificationModal> in pages/Signup.jsx. Bump both
+ * together (and delete this note) once real codes exist.
+ */
+export async function verifyCode(code) {
+  const { data } = await api.post("/verify/confirm", { code, email: pendingVerificationEmail });
+  return data;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   LOG-IN  (pages/Login.jsx)
+   ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * @route  POST /api/auth/login
+ * @param  {{ email: string, password: string }} credentials
+ * @returns {{ userId: string, role: "user" | "moderator" | "admin", token: string }}
+ *          `role` decides where the page sends the person next:
+ *          user → /discover, moderator → /moderator, admin → /admin.
+ * The account has to be verified first — an otherwise-correct email/password
+ * gets a 403, which LoginForm shows as "Verify your email before logging in"
+ * rather than the generic wrong-password message.
+ */
+export async function loginUser({ email, password }) {
+  const { data } = await api.post("/auth/login", { email, password });
+  return data;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PASSWORD RECOVERY  (pages/Login.jsx — "Forgot password?")
+
+   🧪 STILL MOCK: this needs a real email service too, same reason
+   verification's CODE is still fake, but the account state it would touch
+   (a real password) is not connected to anything above — resetting a real
+   account's password here won't actually change it. Wire these up once an
+   email service is picked, following the same pattern as loginUser above.
+
+     LOG-IN view ──"Forgot password?"──▶ RECOVERY view ──▶ PASSWORD view ──▶ LOG-IN
+     loginUser       requestRecoveryCode   verifyRecoveryCode   resetPassword
+   ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * @route  POST /api/auth/recovery/request
+ * @param  {string} email
+ * @returns {{ expiresInSeconds: number }}  the "00:00" countdown starts from this
+ * 🔌 Answer 200 even when the email isn't registered — the page must not
+ *    reveal who has an account.
+ */
+export async function requestRecoveryCode(email) {
+  // const { data } = await api.post("/auth/recovery/request", { email });
+  // return data;
+  return delay({ expiresInSeconds: MOCK_RECOVERY_SECONDS });
+}
+
+/**
+ * @route  POST /api/auth/recovery/verify
+ * @param  {{ email: string, code: string }} body
+ * @returns {{ resetToken: string }}  short-lived, permits only resetPassword
+ */
+export async function verifyRecoveryCode({ email, code }) {
+  // const { data } = await api.post("/auth/recovery/verify", { email, code });
+  // return data;
+  if (code === "000000") throw mockHttpError(400); // type 000000 to see the error state
+  return delay({ resetToken: "mock-reset-token" });
+}
+
+/**
+ * @route  POST /api/auth/recovery/reset
+ * @param  {{ resetToken: string, newPassword: string }} body
+ * @returns {{ ok: true }}
+ */
+export async function resetPassword({ resetToken, newPassword }) {
+  // await api.post("/auth/recovery/reset", { resetToken, newPassword });
+  // return { ok: true };
+  return delay({ ok: true });
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -206,9 +320,19 @@ export async function getAdminSection(section) {
 /* ============================================================================
    MOCK DATA
    ----------------------------------------------------------------------------
-   Delete this whole block once every function above talks to the real server.
-   Until then it is what makes the pages render with no backend running.
+   Delete each piece as the function above it goes real. Until then it's what
+   makes those pages render with no backend running.
    ========================================================================== */
+
+/* A fake server error shaped like the ones axios throws, so a form can tell
+   "the server said no" (has .response) from "the server isn't there" (no
+   .response). Only the still-mocked recovery flow uses it now. */
+const mockHttpError = (status) =>
+  Object.assign(new Error(`Mock HTTP ${status}`), { response: { status } });
+
+/* How long a mock recovery code "lasts". Short on purpose so the countdown
+   can be watched reaching 00:00 in a demo without a real wait. */
+const MOCK_RECOVERY_SECONDS = 60;
 
 const MOCK_STATS = [
   { label: "matches made", value: 10000, display: "10,000+" },

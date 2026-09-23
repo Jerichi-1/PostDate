@@ -34,6 +34,17 @@
   --pd-max: 1920px;
   --pd-gutter: clamp(16px, 3vw, 48px); /* left/right page padding           */
   --pd-radius: 10px; /* default corner rounding                             */
+
+  /* 🎛️ ONE FIGMA PIXEL ----------------------------------------------------
+     The SIGN-UP and LOG-IN pages are fixed layouts, not responsive ones:
+     every size on them is written as `calc(<Figma px> * var(--u))`.
+     --u is how big one Figma pixel is on your screen, and it is the ONLY
+     number to change to make both pages bigger or smaller together.
+       0.8px → the 1920px Figma fits a 1536px-wide laptop window
+               (a 1920x1080 laptop at 125% display scaling)
+       1px   → exact Figma size, for a full 1920px-wide window
+     If you ever get a sideways scrollbar on the sign-up page, lower it.   */
+  --u: 0.8px;
 }
 
 /* Respect users who ask their OS to reduce animation. Leave this in. */

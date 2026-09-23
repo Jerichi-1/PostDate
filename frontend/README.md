@@ -1,189 +1,115 @@
-# POSTDATE! — frontend
+# MERN Postdate
 
-React + Vite frontend for the MERN dating platform. Everything renders with
-**no backend running** — each screen pulls from mock data until the real routes
-are wired up.
+## Project structure
 
-## Run it
+```
+mern-app/
+├── backend/          Express API + Mongoose models
+│   ├── config/db.js
+│   ├── controllers/
+│   ├── models/
+│   ├── routes/
+│   ├── server.js
+│   ├── package.json
+│   └── .env.example
+└── frontend/          React app (Vite)
+    ├── src/
+    |── components/
+    |── pages/
+    │   ├── App.jsx
+    │   ├── api.js
+    │   ├── main.jsx
+    │   └── index.css
+    ├── index.html
+    ├── vite.config.js
+    └── package.json
+```
+
+## Prerequisites
+
+- Node.js 18+ and npm
+- A MongoDB instance — either:
+  - Local MongoDB running on `mongodb://127.0.0.1:27017`, or
+  - A free [MongoDB Atlas](https://www.mongodb.com/atlas) cluster (get a connection string)
+
+## 1. Backend setup
 
 ```bash
-npm install     # do this first, the node_modules in the old zip was Windows-only
-npm run dev     # http://localhost:5173
+cd backend
+npm install
+cp .env.example .env
 ```
 
-## Routes
+Edit `.env` and set `MONGO_URI` to your MongoDB connection string (local or
+Atlas), and `JWT_SECRET` to any long random string (the file has a one-liner
+to generate one). Leave `TEMP_VERIFY_CODE` as `0000` unless you want a
+different fake code — see the note on verification below.
 
-| Path         | Page                                                              |
-| ------------ | ------------------------------------------------------------------ |
-| `/`          | Landing page                                                      |
-| `/signup`    | Three-step stamp form                                             |
-| `/discover`  | Logged-in home feed — search, filter, card grid, like/pass modal  |
-| `/profile`   | Profile page (taste / reviews / photos / settings)                |
-| `/admin`     | Staff dashboard, nine sections                                    |
-| `/moderator` | Same dashboard, six sections                                      |
+Run the server:
 
-## Where to change things
-
-Two symbols are used throughout the code:
-
-- **🎛️** — a value you can safely tune (sizes, spacing, colours, copy, menus).
-  Search the project for `🎛️` to find every dial at once.
-- **🔌** — a spot where the backend connects.
-
-### Colours and fonts
-
-`src/theme.css` holds every colour and font as a CSS variable. Change a hex
-there and it updates on every page. Nothing else hard-codes a colour.
-
-```css
---pd-maroon: #b33951;   --pd-pink:   #e8b4b8;   --pd-tan:  #ede0d4;
---pd-salmon: #f4876a;   --pd-ink:    #2b2320;   --pd-cream: #faf3ee;
+```bash
+npm run dev      # with nodemon, auto-restarts on changes
+# or
+npm start
 ```
 
-### Layout and sizing
+The API will run at `http://localhost:5000`. Test it: `GET http://localhost:5000/` should return "MERN API is running...".
 
-Each component keeps its own CSS in a `<style>` block at the top of its file,
-so the styling sits next to the markup it belongs to. The main dials are
-grouped under a `🎛️ TUNE` comment near the top of each block.
+### API endpoints
 
-Sizes use `clamp(min, scale, max)` so the pages scale from phone to 1920px
-without separate mobile styles. To make something bigger everywhere, raise the
-third number.
+Auth (`controllers/authController.js` + `routes/authRoutes.js`) is built and
+working — sign-up, log-in, and email verification. Nothing else has a
+controller/route pair yet — only the Mongoose models exist for the rest
+(`Post`, `Comment`, `Match`, `Like`, `Follow`, `Swipe`, `Message`,
+`Notification`, `Rating`, `Report`). Build those out the same way auth was
+built (model → controller → route → registered in `server.js`) as each
+screen needs them.
 
-## Plugging in the backend
+**What auth does, as a worked example of the pattern:**
 
-**`src/services/postdateApi.js` is the only file the backend team needs to
-touch.** Every screen gets its data from a function there; no component knows a
-server exists.
+- `POST /api/signup` — creates a `User` (hashed password via bcrypt) and its
+  `Profile` together; rolls the `User` back if the `Profile` fails so a
+  sign-up can't half-succeed. Returns 409 for a duplicate email.
+- `POST /api/auth/login` — checks the password, issues a JWT (`JWT_SECRET`,
+  7-day expiry). 401 for a wrong email or password (deliberately the same
+  reply for both), 403 for a correct login on an account that hasn't
+  verified yet.
+- `POST /api/verify/send` / `POST /api/verify/confirm` — the account created
+  by sign-up starts unverified, and log-in refuses it until this pair flips
+  `isVerified` to `true`. **The code itself is fake right now** — nothing is
+  emailed, every account is verified by the same `TEMP_VERIFY_CODE` (default
+  `"0000"`, `.env`). Swap this out once an email service is picked: generate
+  a real per-user code in `sendVerificationCode`, email it, and check it for
+  real in `verifyCode` — the response shapes on both already match what the
+  frontend expects, only the inside needs to change.
 
-Each function is written like this:
+Password recovery ("forgot password?" on the frontend's `/login` page) needs
+the same email service and isn't built here yet — the frontend mocks it (see
+`frontend/README.md`).
 
-```js
-export async function getProfile(userId = "me") {
-  // const { data } = await api.get(`/profile/${userId}`);   ← uncomment
-  // return data;
-  return delay(MOCK_PROFILE);                               // ← delete
-}
+## 2. Frontend setup
+
+Open a new terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-So connecting a route is: uncomment two lines, delete one. The `@route` comment
-above each function says which endpoint it expects, and `@returns` documents the
-shape the UI needs. If the server ends up returning a different shape, map it
-inside that function rather than editing components.
+The app will run at `http://localhost:5173` and talk to the backend at `http://localhost:5000`.
 
-Routes the frontend is waiting on:
+## 3. Build for production
 
-| Function               | Route                                                              |
-| ----------------------- | --------------------------------------------------------------------- |
-| `getLandingStats`     | `GET /api/stats`                                                   |
-| `submitSignup`        | `POST /api/signup` (multipart)                                     |
-| `getTasteOptions`     | `GET /api/tags`                                                    |
-| `getDiscoverProfiles` | `GET /api/discover?query=&gender=&maxDistance=&minAge=&maxAge=`    |
-| `likeProfile`         | `POST /api/discover/like`                                          |
-| `passProfile`         | `POST /api/discover/pass`                                          |
-| `getProfile`          | `GET /api/profile/:userId`                                         |
-| `saveProfileTags`     | `PUT /api/profile/tags`                                            |
-| `uploadProfilePhotos` | `POST /api/profile/photos`                                         |
-| `getActiveCount`      | `GET /api/admin/active-count`                                      |
-| `getAdminSection`     | `GET /api/admin/:section`                                          |
-
-The base URL lives in `src/api.js` (`http://localhost:5000/api`).
-
-Delete the `MOCK_` block at the bottom of `postdateApi.js` once everything is
-connected.
-
-### Auth
-
-No login yet, so `/admin` is open to anyone. There's a `RequireAuth` sketch at
-the bottom of `src/App.jsx` to drop in once sessions exist.
-
-## File map
-
-```
-src/
-  theme.css                    colours, fonts, layout tokens
-  index.css                    global resets + font loading
-  App.jsx                      route table
-  api.js                       axios instance
-  services/postdateApi.js      🔌 every backend call lives here
-  pages/
-    Home.jsx                   landing
-    Signup.jsx                 3-step form
-    Profile.jsx                profile shell + tab switching
-    Discover.jsx                logged-in home feed
-    AdminDashboard.jsx         staff console (admin + moderator)
-  components/
-    Wordmark.jsx               POSTDATE! logo
-    SiteNav.jsx                logged-out header
-    AppNav.jsx                 logged-in header (maroon pill)
-    SiteFooter.jsx             footer band
-    HeroBackdrop.jsx           corner stripes + the two cloud banks (SVG)
-    StepStamp.jsx              landing "how it works" stamp
-    StampCardShell.jsx         signup stamp chrome
-    FormStepper.jsx            1 → 2 → 3 progress
-    WhoAreYouForm.jsx          signup step 1
-    PhotosForm.jsx             signup step 2
-    YourTasteForm.jsx          signup step 3
-    SignupAside.jsx            "why we ask" column
-    profile/
-      ProfileIdentity.jsx      avatar + name + bio + meta
-      ProfileTabs.jsx          the four tabs (exports PANEL_COLOURS)
-      TasteTab.jsx             interest chips + edit/save
-      ReviewsTab.jsx           review rows
-      PhotosTab.jsx            photo mosaic + upload
-      SettingsTab.jsx          dark placeholder panel
-    admin/
-      AdminSidebar.jsx         dashboard pills (exports SECTIONS)
-    discover/
-      PageBanner.jsx           reusable maroon page-title banner
-      DiscoverToolbar.jsx      search bar + filters button/panel
-      ProfileCard.jsx          one 280x280 card in the grid
-      ProfileModal.jsx         card detail view, like/pass buttons
-      DiscoverFooter.jsx       dark bottom band — see confidence note below
+```bash
+cd frontend
+npm run build
 ```
 
-`components/Navbar.jsx` and `Navbar.css` are the original header — `SiteNav`
-and `AppNav` replace it. They're left in place in case anything still imports
-them, but nothing does.
+This outputs static files to `frontend/dist`, which you can serve with any static host, or have Express serve them directly (add `express.static` in `server.js` pointing at `../frontend/dist`).
 
-## The discover page — read this before you trust it blindly
+## Notes
 
-Every other page in this project was built against a screenshot of your
-actual Figma frame, pixel-measured with a script. **The discover feed had no
-screenshot** — only CSS layer names, sizes, and ordering — so it's a
-reconstruction, not a measurement. It's internally consistent and the
-evidence supports it, but you should open your real Figma frame and compare.
-Specific spots to check:
-
-- **`ProfileCard.jsx`** — a third of the 18 cards in the export were missing
-  their distance/gender text, and the border wobbled between 1px and 3px.
-  Almost certainly lost when the layer got duplicated, not an intentional
-  variant — I made every card show the same three fields consistently.
-- **`DiscoverToolbar.jsx`** — the Filters button had no panel content in the
-  export at all. I built a dropdown with gender/distance/age since those are
-  the only fields the cards themselves reference. If "filters" was meant to
-  mean something else, this is a self-contained file to swap out.
-- **`ProfileModal.jsx`** — the Figma draws its pass button as a "+" rotated
-  ~45°, a common trick for faking an × from a +. I used a real × character
-  for the same visual result with less markup.
-- **`DiscoverFooter.jsx`** — this is the one I'm least sure about. The export
-  has a 200px-tall dark bar with a single leftover "GENDER" text layer in it.
-  200px is tall for a plain footer, so it might have held more, but one
-  ambiguous label isn't enough to guess what. It ships as a plain dark
-  footer band; if your Figma shows something else there, this is the only
-  file that needs to change.
-
-## Notes on the design
-
-- The clouds on the landing page are inline SVG circles, not images, so they
-  recolour with `--pd-maroon` and stay sharp at any size. The arcs were matched
-  to the Figma export.
-- The profile tabs each keep a fixed colour and the panel below adopts the
-  selected tab's colour — that colour match is how the design shows which tab
-  is open, so `PANEL_COLOURS` in `ProfileTabs.jsx` is shared with `Profile.jsx`
-  to stop the two drifting apart.
-- Fonts load from Google Fonts in `index.css`. If campus wifi blocks it, the
-  file has a two-line swap to `@fontsource` instead.
-- Not in these files: the **discover feed** (card grid, search, filters, profile
-  modal) that's in your Figma CSS around `Rectangle 88`–`Rectangle 139`.
-  `AppNav` already links to `/discover` for whenever that gets built.
+- CORS is already configured on the backend to allow requests from `http://localhost:5173` (change `CLIENT_URL` in `.env` if your frontend runs elsewhere).
+- This starter uses ES modules (`"type": "module"`) on both ends.
+- For each model, follow the same pattern: model → controller → route → wire into `server.js`. `authController.js`/`authRoutes.js` are the first pair built this way — a concrete example to copy.

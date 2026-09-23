@@ -7,13 +7,15 @@
  *   3. add a <Route path="/your-path" element={<YourPage />} />
  *
  * 🔌 BACKEND / AUTH
- *   The admin route is open to anyone right now. Once login exists, wrap the
- *   protected routes in a guard — see the RequireAuth sketch at the bottom.
+ *   The admin route is open to anyone right now. Once login sessions exist,
+ *   wrap the protected routes in a guard — see the RequireAuth sketch at the
+ *   bottom. (The /login page is built; it just doesn't remember anyone yet.)
  */
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import Home from "./pages/Home";
 import Signup from "./pages/Signup";
+import Login from "./pages/Login";
 import Discover from "./pages/Discover";
 import Profile from "./pages/Profile";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -26,6 +28,8 @@ function App() {
       {/* ── public ────────────────────────────────────────────────────── */}
       <Route path="/" element={<Home />} />
       <Route path="/signup" element={<Signup />} />
+      {/* log-in, plus the "forgot password" screens (recovery code → new password) */}
+      <Route path="/login" element={<Login />} />
 
       {/* ── signed in ─────────────────────────────────────────────────── */}
       <Route path="/discover" element={<Discover />} />

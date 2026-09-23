@@ -1,8 +1,8 @@
 /**
  * SiteNav
  * The *logged-out* header: wordmark on the left, plain text links on the
- * right, and a white hairline underneath. Used on the landing page and the
- * signup flow.
+ * right, and a white hairline underneath. Used on the landing page, the
+ * signup flow and the log-in page.
  *
  * For the *logged-in* header (the maroon pill with HOME / MESSAGES / PROFILE)
  * use AppNav instead.
@@ -15,10 +15,12 @@ import { NavLink } from "react-router-dom";
 import Wordmark from "./Wordmark";
 
 /* 🎛️ EDIT THE MENU HERE ---------------------------------------------------
-   Add, remove or reorder links. `to` must match a <Route path> in App.jsx. */
+   Add, remove or reorder links. `to` must match a <Route path> in App.jsx.
+   ("Log in" used to be "Get started" — sign-up is reached from the landing
+   page's "Create Profile" button and the "Register!" line on the log-in page.) */
 const DEFAULT_LINKS = [
   { label: "Home", to: "/" },
-  { label: "Get started", to: "/signup" },
+  { label: "Log in", to: "/login" },
   { label: "About us", to: "/about" },
 ];
 

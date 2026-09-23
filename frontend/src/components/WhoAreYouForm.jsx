@@ -235,7 +235,7 @@ export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) 
           <label className="wru-label" htmlFor="stamp-birthdate">Birthdate</label>
           <input
             id="stamp-birthdate"
-            type="date"
+            type="text"
             placeholder="MM/DD/YY"
             value={values.birthdate}
             onChange={update("birthdate")}

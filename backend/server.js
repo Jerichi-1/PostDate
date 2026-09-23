@@ -2,9 +2,16 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const connectDB = require("./config/db.js");
+const authRoutes = require("./routes/authRoutes.js");
 
 dotenv.config();
 connectDB();
+
+if (!process.env.JWT_SECRET) {
+  // Not fatal — the server still starts — but every login will 500 until
+  // this is set. See .env.example.
+  console.warn("⚠️  JWT_SECRET is not set in .env — logging in will fail until it is.");
+}
 
 const app = express();
 
@@ -18,6 +25,9 @@ app.get("/", (req, res) => {
 app.get("/api", (req, res) => {
   res.send("MERN API is running...");
 });
+
+// signup, log-in, email verification — see controllers/authController.js
+app.use("/api", authRoutes);
 
 // Basic error handler
 app.use((err, req, res, next) => {
