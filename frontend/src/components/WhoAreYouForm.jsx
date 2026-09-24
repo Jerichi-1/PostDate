@@ -19,6 +19,12 @@ import StampCardShell from "./StampCardShell";
  * the Figma, and the User model needs them) — the backend should hash the
  * password and never store it as sent.
  *
+ * 🔁 CHANGED: birthdate used to be a free-text "MM/DD/YY" field. It's now a
+ * real <input type="date">, so `birthdate` comes out as an ISO string
+ * ("YYYY-MM-DD") instead — backend/controllers/authController.js's
+ * parseBirthdate() was updated to match. If you're wiring this up against
+ * an older backend build, update that function too or signups will 400.
+ *
  * Usage:
  *   <WhoAreYouForm onContinue={(data) => console.log(data)} />
  *   <WhoAreYouForm step={1} totalSteps={3} onContinue={handleNext} />
@@ -35,6 +41,24 @@ const GENDER_OPTIONS = [
 
 const MIN_PASSWORD_LENGTH = 8; // 🎛️ shortest password we accept
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const MIN_AGE = 18; // 🎛️ keep in sync with MIN_SIGNUP_AGE in backend/controllers/authController.js
+const MAX_BIRTHDATE = new Date().toISOString().slice(0, 10); // no future birthdates
+const MIN_BIRTHDATE = "1900-01-01"; // 🎛️ oldest birthdate the date picker allows
+
+/** "YYYY-MM-DD" (what <input type="date"> gives us) -> whole years old. */
+function calculateAge(isoDate) {
+  if (!isoDate) return 0;
+  const dob = new Date(isoDate);
+  if (Number.isNaN(dob.getTime())) return 0;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const hadBirthdayThisYear =
+    today.getMonth() > dob.getMonth() ||
+    (today.getMonth() === dob.getMonth() && today.getDate() >= dob.getDate());
+  if (!hadBirthdayThisYear) age -= 1;
+  return age;
+}
 
 export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) {
   const [values, setValues] = useState({
@@ -57,7 +81,10 @@ export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) 
     lastName: !values.lastName.trim(),
     email: !EMAIL_PATTERN.test(values.email.trim()),
     password: values.password.length < MIN_PASSWORD_LENGTH,
-    birthdate: !values.birthdate.trim(),
+    // Empty, or younger than the site's minimum age — the date picker's
+    // own min/max stop most bad input before it gets here, but someone
+    // typing the date manually on some browsers can still slip past those.
+    birthdate: !values.birthdate.trim() || calculateAge(values.birthdate) < MIN_AGE,
   };
   const isValid = !Object.values(problems).some(Boolean);
 
@@ -149,6 +176,11 @@ export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) 
         .stamp-wrapper input[type="email"],
         .stamp-wrapper input[type="password"] { text-transform: none; }
 
+        /* date input: browsers render their own calendar icon here, which
+           only partially themes via ::-webkit-calendar-picker-indicator —
+           left as the browser default rather than fighting it per-browser */
+        .stamp-wrapper input[type="date"] { text-transform: none; }
+
         /* gender dropdown with the maroon triangle */
         .wru-select-wrap { position: relative; }
         .stamp-wrapper .wru-select-wrap select {
@@ -235,8 +267,10 @@ export default function WhoAreYouForm({ step = 1, totalSteps = 3, onContinue }) 
           <label className="wru-label" htmlFor="stamp-birthdate">Birthdate</label>
           <input
             id="stamp-birthdate"
-            type="text"
-            placeholder="MM/DD/YY"
+            type="date"
+            autoComplete="bday"
+            min={MIN_BIRTHDATE}
+            max={MAX_BIRTHDATE}
             value={values.birthdate}
             onChange={update("birthdate")}
             className={invalid("birthdate")}

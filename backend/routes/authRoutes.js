@@ -5,6 +5,8 @@ const {
   sendVerificationCode,
   verifyCode,
 } = require("../controllers/authController");
+const { authLimiter } = require("../middleware/rateLimiter");
+const { asyncHandler } = require("../middleware/errorHandler");
 
 const router = express.Router();
 
@@ -13,9 +15,12 @@ const router = express.Router();
 //   POST /api/auth/login
 //   POST /api/verify/send
 //   POST /api/verify/confirm
-router.post("/signup", register);
-router.post("/auth/login", login);
-router.post("/verify/send", sendVerificationCode);
-router.post("/verify/confirm", verifyCode);
+//
+// authLimiter (see ../middleware/rateLimiter.js) applies a tighter limit to
+// all four — these are the routes most worth brute-forcing.
+router.post("/signup", authLimiter, asyncHandler(register));
+router.post("/auth/login", authLimiter, asyncHandler(login));
+router.post("/verify/send", authLimiter, asyncHandler(sendVerificationCode));
+router.post("/verify/confirm", authLimiter, asyncHandler(verifyCode));
 
 module.exports = router;

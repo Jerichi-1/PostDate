@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const Profile = require("../models/Profile");
+const { isValidEmail, isNonEmptyString } = require("../utils/validators");
 
 /**
  * authController
@@ -24,6 +25,8 @@ const Profile = require("../models/Profile");
 
 const SALT_ROUNDS = 10; // 🎛️ bcrypt cost factor
 const TOKEN_TTL = "7d"; // 🎛️ how long a log-in session lasts
+const MIN_PASSWORD_LENGTH = 8; // 🎛️ keep in sync with the frontend forms
+const MIN_SIGNUP_AGE = 18; // 🎛️ keep in sync with MIN_AGE in WhoAreYouForm.jsx
 
 // 🧪 TEMP verification code — every account is "verified" by typing this
 // exact string, since nothing emails a real one yet. Keep in sync with
@@ -37,32 +40,39 @@ function signToken(user) {
 }
 
 /**
- * "MM/DD/YY" or "MM/DD/YYYY" -> a real Date, or null if it doesn't parse.
- * The sign-up form (WhoAreYouForm.jsx) is a free-text field, not a date
- * picker, so this is the only thing standing between "01/01/04" and garbage
- * ending up in the database.
+ * "YYYY-MM-DD" — what a native <input type="date"> sends (see
+ * WhoAreYouForm.jsx) — -> a real Date, or null if it doesn't parse.
+ *
+ * 🔁 CHANGED: the birthdate field used to be free text in "MM/DD/YY" format,
+ * parsed by hand here. It's now a real date picker, which always sends ISO
+ * "YYYY-MM-DD" — much less room for garbage input, so this got simpler too.
  */
 function parseBirthdate(input) {
-  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(String(input ?? "").trim());
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(input ?? "").trim());
   if (!match) return null;
 
-  const [, mm, dd, yy] = match;
-  let year = Number(yy);
-  if (yy.length === 2) {
-    // 🎛️ "04" -> 2004, but "98" -> 1998, not 2098: pick whichever century
-    // doesn't land in the future. Good enough for realistic birthdates; swap
-    // the form for a real date picker if this ever guesses wrong.
-    const currentYear = new Date().getUTCFullYear();
-    year = 2000 + Number(yy);
-    if (year > currentYear) year -= 100;
-  }
-
+  const [, yyyy, mm, dd] = match;
+  const year = Number(yyyy);
   const date = new Date(Date.UTC(year, Number(mm) - 1, Number(dd)));
+
   const valid =
     date.getUTCFullYear() === year &&
     date.getUTCMonth() === Number(mm) - 1 &&
     date.getUTCDate() === Number(dd);
+
   return valid ? date : null;
+}
+
+/** Whole years between a birthdate and today, UTC-based to match parseBirthdate. */
+function calculateAge(dateOfBirth) {
+  const today = new Date();
+  let age = today.getUTCFullYear() - dateOfBirth.getUTCFullYear();
+  const hadBirthdayThisYear =
+    today.getUTCMonth() > dateOfBirth.getUTCMonth() ||
+    (today.getUTCMonth() === dateOfBirth.getUTCMonth() &&
+      today.getUTCDate() >= dateOfBirth.getUTCDate());
+  if (!hadBirthdayThisYear) age -= 1;
+  return age;
 }
 
 /**
@@ -76,15 +86,35 @@ async function register(req, res) {
     const { firstName, middleName, lastName, email, password, birthdate, gender, bio, tags } =
       req.body ?? {};
 
-    if (!firstName || !lastName || !email || !password || !birthdate || !gender) {
+    if (
+      !isNonEmptyString(firstName, 50) ||
+      !isNonEmptyString(lastName, 50) ||
+      !isNonEmptyString(gender) ||
+      !isNonEmptyString(password) ||
+      !birthdate
+    ) {
       return res.status(400).json({ message: "Missing required fields" });
     }
-    if (password.length < 8) {
-      return res.status(400).json({ message: "Password must be at least 8 characters" });
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ message: "Enter a valid email address" });
     }
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res
+        .status(400)
+        .json({ message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    }
+
     const dateOfBirth = parseBirthdate(birthdate);
     if (!dateOfBirth) {
-      return res.status(400).json({ message: "Birthdate must be MM/DD/YY" });
+      return res.status(400).json({ message: "Enter a valid birthdate" });
+    }
+    if (dateOfBirth.getTime() > Date.now()) {
+      return res.status(400).json({ message: "Birthdate can't be in the future" });
+    }
+    if (calculateAge(dateOfBirth) < MIN_SIGNUP_AGE) {
+      return res
+        .status(400)
+        .json({ message: `You must be at least ${MIN_SIGNUP_AGE} to sign up` });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -97,9 +127,9 @@ async function register(req, res) {
     const user = await User.create({
       email: normalizedEmail,
       passwordHash,
-      firstName,
-      middleName,
-      lastName,
+      firstName: firstName.trim(),
+      middleName: middleName?.trim(),
+      lastName: lastName.trim(),
     });
 
     try {
@@ -136,13 +166,16 @@ async function register(req, res) {
 async function login(req, res) {
   try {
     const { email, password } = req.body ?? {};
-    if (!email || !password) {
+    if (!isValidEmail(email) || !isNonEmptyString(password)) {
       return res.status(400).json({ message: "Email and password are required" });
     }
 
     const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ message: "Wrong email or password" });
+    }
+    if (!user.isActive) {
+      return res.status(403).json({ message: "This account has been deactivated" });
     }
     if (!user.isVerified) {
       return res.status(403).json({ message: "Verify your email before logging in" });
@@ -197,4 +230,11 @@ async function verifyCode(req, res) {
   }
 }
 
-module.exports = { register, login, sendVerificationCode, verifyCode, parseBirthdate };
+module.exports = {
+  register,
+  login,
+  sendVerificationCode,
+  verifyCode,
+  parseBirthdate,
+  calculateAge,
+};
