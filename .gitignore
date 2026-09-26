@@ -9,6 +9,10 @@ node_modules/
 frontend/dist/
 frontend/build/
 
+# Uploaded photos (local disk storage, not real file storage — see
+# backend/utils/photoStorage.js. Never commit user-uploaded content.)
+backend/uploads/
+
 # Logs
 npm-debug.log*
 *.log

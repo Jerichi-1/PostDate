@@ -47,6 +47,8 @@ const profileSchema = new mongoose.Schema(
       }
     },
 
+    // Personality chips — "Your taste" tab. Validated against
+    // utils/tasteOptions.js PERSONALITY_OPTIONS on every write.
     interests: {
       type: [String],
       default: []
@@ -66,12 +68,34 @@ const profileSchema = new mongoose.Schema(
       maxAge: {
         type: Number,
         min: 18
+      },
+
+      // "Looking for" chips — what the person wants from dating, kept
+      // separate from `interests` (personality) so the two can be edited
+      // independently. Validated against LOOKING_FOR_OPTIONS.
+      intents: {
+        type: [String],
+        default: []
       }
     },
 
+    // Every photo the user has ever uploaded, newest last. Each entry is a
+    // public path served by the backend, e.g. "/uploads/<random>.jpg" — see
+    // utils/photoStorage.js. Deleting a photo removes it from this array
+    // (and the file on disk); it can't be the current avatar or the last
+    // photo left (see profileController.deletePhoto).
     photos: {
       type: [String],
       default: []
+    },
+
+    // The photo currently shown as the profile picture. Always one of the
+    // entries in `photos`, or null before the first upload. Kept as its own
+    // field (rather than "photos[0]") so changing it doesn't reorder the
+    // gallery the photos tab shows.
+    avatar: {
+      type: String,
+      default: null
     },
 
     followersCount: {

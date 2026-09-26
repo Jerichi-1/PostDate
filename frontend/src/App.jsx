@@ -6,10 +6,11 @@
  *   2. import it here
  *   3. add a <Route path="/your-path" element={<YourPage />} />
  *
- * 🔌 BACKEND / AUTH
- *   The admin route is open to anyone right now. Once login sessions exist,
- *   wrap the protected routes in a guard — see the RequireAuth sketch at the
- *   bottom. (The /login page is built; it just doesn't remember anyone yet.)
+ * 🔒 AUTH: /discover and /profile need someone logged in; /admin needs the
+ * "admin" role specifically and /moderator needs "moderator" — see
+ * components/RequireAuth.jsx. This is routing convenience only: the backend
+ * enforces the real check on every request via requireAuth/requireRole
+ * (backend/middleware/auth.js) regardless of what this file does.
  */
 import { Routes, Route, Navigate } from "react-router-dom";
 
@@ -19,6 +20,7 @@ import Login from "./pages/Login";
 import Discover from "./pages/Discover";
 import Profile from "./pages/Profile";
 import AdminDashboard from "./pages/AdminDashboard";
+import RequireAuth from "./components/RequireAuth";
 
 import "./App.css";
 
@@ -32,14 +34,45 @@ function App() {
       <Route path="/login" element={<Login />} />
 
       {/* ── signed in ─────────────────────────────────────────────────── */}
-      <Route path="/discover" element={<Discover />} />
-      <Route path="/profile" element={<Profile />} />
+      <Route
+        path="/discover"
+        element={
+          <RequireAuth>
+            <Discover />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <RequireAuth>
+            <Profile />
+          </RequireAuth>
+        }
+      />
 
       {/* ── staff ─────────────────────────────────────────────────────────
           One page, two roles. "admin" shows all nine sidebar sections;
-          "moderator" shows the shorter six-item list. */}
-      <Route path="/admin" element={<AdminDashboard role="admin" />} />
-      <Route path="/moderator" element={<AdminDashboard role="moderator" />} />
+          "moderator" shows the shorter six-item list. Each route only opens
+          for its own role — an admin visiting /moderator still gets bounced
+          home, same as anyone else, rather than the two dashboards blurring
+          into "any staff role can see either page". */}
+      <Route
+        path="/admin"
+        element={
+          <RequireAuth role="admin">
+            <AdminDashboard role="admin" />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/moderator"
+        element={
+          <RequireAuth role="moderator">
+            <AdminDashboard role="moderator" />
+          </RequireAuth>
+        }
+      />
 
       {/* Anything unrecognised goes home rather than showing a blank page. */}
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -48,21 +81,3 @@ function App() {
 }
 
 export default App;
-
-/* 🔌 BACKEND — protecting routes once login is built:
- *
- *   function RequireAuth({ role, children }) {
- *     const user = useCurrentUser();                  // your auth hook
- *     if (!user) return <Navigate to="/login" replace />;
- *     if (role && user.role !== role) return <Navigate to="/" replace />;
- *     return children;
- *   }
- *
- *   <Route path="/admin" element={
- *     <RequireAuth role="admin"><AdminDashboard role="admin" /></RequireAuth>
- *   } />
- *
- * "/discover" and "/profile" want the same treatment (wrap in <RequireAuth>
- * with no role) once accounts exist — right now anyone can open them, same
- * as "/admin" until login lands.
- */

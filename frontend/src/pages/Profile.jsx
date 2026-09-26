@@ -14,6 +14,11 @@
  *
  * The panel behind the tab content takes that tab's colour — see
  * PANEL_COLOURS in components/profile/ProfileTabs.jsx.
+ *
+ * `profile` in state matches what services/postdateApi.js -> getProfile()
+ * returns: avatarPath/photoPaths are raw backend paths, turned into
+ * loadable URLs via toPhotoUrl() only where something needs to render an
+ * <img> (ProfileIdentity here; PhotosTab does its own for the gallery).
  */
 import { useEffect, useState } from "react";
 
@@ -25,7 +30,7 @@ import ReviewsTab from "../components/profile/ReviewsTab";
 import PhotosTab from "../components/profile/PhotosTab";
 import SettingsTab from "../components/profile/SettingsTab";
 
-import { getProfile } from "../services/postdateApi";
+import { getProfile, toPhotoUrl } from "../services/postdateApi";
 
 export default function Profile() {
   /* 🎛️ Which tab opens first. One of: taste | reviews | photos | settings */
@@ -98,6 +103,8 @@ export default function Profile() {
           border-radius: var(--pd-radius);
           padding: clamp(14px, 2vw, 32px);
           min-height: clamp(260px, 38vw, 520px);   /* 🎛️ panel height */
+          max-height: clamp(400px, 52vw, 640px);   /* 🎛️ panel height ceiling — content scrolls past this */
+          overflow: hidden;                         /* individual tabs own their own scroll (see TasteTab/PhotosTab/ReviewsTab) */
           transition: background-color 0.2s ease;
         }
 
@@ -124,7 +131,9 @@ export default function Profile() {
 
         {profile && (
           <div className="profile-panel">
-            <ProfileIdentity profile={profile} />
+            <ProfileIdentity
+              profile={{ ...profile, avatarUrl: toPhotoUrl(profile.avatarPath) }}
+            />
 
             <div className="profile-right">
               <ProfileTabs active={tab} onChange={setTab} />
@@ -136,12 +145,22 @@ export default function Profile() {
                 aria-labelledby={`ptab-${tab}`}
                 style={{ background: PANEL_COLOURS[tab] }}
               >
-                {tab === "taste" && <TasteTab tags={profile.tags} />}
+                {tab === "taste" && (
+                  <TasteTab
+                    tags={profile.tags}
+                    lookingFor={profile.lookingFor}
+                    onTagsSaved={(tags) => setProfile((p) => ({ ...p, tags }))}
+                    onLookingForSaved={(lookingFor) => setProfile((p) => ({ ...p, lookingFor }))}
+                  />
+                )}
                 {tab === "reviews" && <ReviewsTab reviews={profile.reviews} />}
                 {tab === "photos" && (
                   <PhotosTab
-                    photos={profile.photos}
-                    onChange={(photos) => setProfile((p) => ({ ...p, photos }))}
+                    photoPaths={profile.photoPaths}
+                    avatarPath={profile.avatarPath}
+                    onChange={({ photoPaths, avatarPath }) =>
+                      setProfile((p) => ({ ...p, photoPaths, avatarPath }))
+                    }
                   />
                 )}
                 {tab === "settings" && <SettingsTab />}

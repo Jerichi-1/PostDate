@@ -1,47 +1,63 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import StampCardShell from "./StampCardShell";
-
-const DEFAULT_TASTE_OPTIONS = [
-  "Coffee dates",
-  "Late night talks",
-  "Hiking",
-  "Live music",
-  "Home cooking",
-  "Board games",
-  "Road trips",
-  "Bookworm",
-  "Dog person",
-  "Cat person",
-  "Early riser",
-  "Night owl",
-];
+import { getTasteOptions } from "../services/postdateApi";
 
 /**
  * YourTasteForm
- * Step 3 of the signup flow: pick a minimum number of interest tags.
- * The mockup's blank tag boxes didn't specify labels, so this ships with a
- * reasonable default set — pass your own via the `options` prop.
- * Sizes are `calc(<Figma px> * var(--u))`, see pages/Signup.jsx. The chips
- * wrap inside the fixed-size stamp card, so roughly 12–16 tags is the limit.
+ * Step 3 of the signup flow: pick between min and max personality chips.
+ * The chip list and the min/max come from GET /api/tags (getTasteOptions)
+ * rather than being hard-coded here, so sign-up can never accept a
+ * selection the profile page's "Your taste" tab would later reject — see
+ * backend/utils/tasteOptions.js, the one place both sides read from.
+ *
+ * 🎛️ The stamp card is a fixed size (see StampCardShell), and the chip list
+ * is now 20 long, so the grid scrolls inside the card rather than pushing
+ * the footer/button off the bottom.
  *
  * Usage:
  *   <YourTasteForm onConfirm={(tags) => console.log(tags)} />
- *   <YourTasteForm step={3} totalSteps={3} minSelected={3} options={myTags} onConfirm={handleFinish} />
+ *   <YourTasteForm step={3} totalSteps={3} onConfirm={handleFinish} />
  */
+
+// 🎛️ Used only for the brief moment before GET /api/tags resolves, so the
+// "select N–N" label doesn't flash a wrong number.
+const FALLBACK_LIMITS = { minPersonality: 3, maxPersonality: 5 };
+
 export default function YourTasteForm({
   step = 3,
   totalSteps = 3,
-  minSelected = 3,
-  options = DEFAULT_TASTE_OPTIONS,
   onConfirm,
+  buttonLabel,
 }) {
+  const [options, setOptions] = useState(null); // string[] once loaded
+  const [limits, setLimits] = useState(FALLBACK_LIMITS);
+  const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState([]);
   const [touched, setTouched] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    getTasteOptions()
+      .then((data) => {
+        if (cancelled) return;
+        setOptions(data.personality);
+        setLimits(data.limits);
+      })
+      .catch(() => !cancelled && setLoadError(true));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const { minPersonality: minSelected, maxPersonality: maxSelected } = limits;
   const isValid = selected.length >= minSelected;
 
   const toggle = (tag) => {
-    setSelected((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+    setSelected((prev) => {
+      if (prev.includes(tag)) return prev.filter((t) => t !== tag);
+      if (prev.length >= maxSelected) return prev; // the count line below explains the cap
+      return [...prev, tag];
+    });
   };
 
   const handleConfirm = () => {
@@ -50,22 +66,31 @@ export default function YourTasteForm({
     onConfirm?.(selected);
   };
 
+  const errorText = loadError
+    ? "Could not load the taste options. Refresh the page to try again."
+    : touched && !isValid
+    ? `Pick at least ${minSelected} to continue.`
+    : null;
+
   return (
     <StampCardShell
       title="Your taste"
       step={step}
       totalSteps={totalSteps}
-      buttonLabel="Confirm!"
+      buttonLabel={buttonLabel ?? "Confirm!"}
       onButtonClick={handleConfirm}
-      error={touched && !isValid ? `Pick at least ${minSelected} to continue.` : null}
+      error={errorText}
     >
       <style>{`
         .taste-field-group {
+          flex: 1;
+          min-height: 0;
           display: flex;
           flex-direction: column;
           gap: calc(8 * var(--u));
         }
         .taste-field-label {
+          flex: none;
           font-weight: 700;
           font-size: calc(24 * var(--u));
           line-height: calc(36 * var(--u));
@@ -74,9 +99,14 @@ export default function YourTasteForm({
         }
 
         .taste-grid {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;   /* 🎛️ 20 chips won't all fit at once — this scrolls instead of blowing out the fixed stamp */
           display: flex;
           flex-wrap: wrap;
+          align-content: flex-start;
           gap: calc(10 * var(--u));
+          padding-right: calc(4 * var(--u));   /* keeps the last column clear of the scrollbar */
         }
         .taste-chip {
           font-family: var(--pd-mono);
@@ -102,8 +132,10 @@ export default function YourTasteForm({
           background: var(--pd-maroon);
           color: var(--pd-cream);
         }
+        .taste-chip:disabled { opacity: 0.4; cursor: default; }
 
         .taste-count {
+          flex: none;
           font-size: calc(14 * var(--u));
           letter-spacing: 0.02em;
           color: var(--pd-ink);
@@ -112,27 +144,35 @@ export default function YourTasteForm({
       `}</style>
 
       <div className="taste-field-group">
-        <span className="taste-field-label">Select min {minSelected}</span>
+        <span className="taste-field-label">
+          Select {minSelected}–{maxSelected}
+        </span>
 
-        <div className="taste-grid" role="group" aria-label="Your taste">
-          {options.map((tag) => {
-            const active = selected.includes(tag);
-            return (
-              <button
-                type="button"
-                key={tag}
-                className={`taste-chip ${active ? "taste-chip-active" : ""}`}
-                aria-pressed={active}
-                onClick={() => toggle(tag)}
-              >
-                {tag}
-              </button>
-            );
-          })}
-        </div>
+        {!options && !loadError && <span className="taste-count">Loading…</span>}
+
+        {options && (
+          <div className="taste-grid" role="group" aria-label="Your taste">
+            {options.map((tag) => {
+              const active = selected.includes(tag);
+              const atCap = !active && selected.length >= maxSelected;
+              return (
+                <button
+                  type="button"
+                  key={tag}
+                  className={`taste-chip ${active ? "taste-chip-active" : ""}`}
+                  aria-pressed={active}
+                  disabled={atCap}
+                  onClick={() => toggle(tag)}
+                >
+                  {tag}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <span className="taste-count">
-          {selected.length} selected{minSelected ? ` (min ${minSelected})` : ""}
+          {selected.length} selected (min {minSelected}, max {maxSelected})
         </span>
       </div>
     </StampCardShell>

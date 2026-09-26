@@ -3,6 +3,13 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const Profile = require("../models/Profile");
 const { isValidEmail, isNonEmptyString } = require("../utils/validators");
+const {
+  PERSONALITY_OPTIONS,
+  LIMITS,
+  validateSelection,
+  parseListField,
+} = require("../utils/tasteOptions");
+const { savePhotosToDisk, deletePhotoFile } = require("../utils/photoStorage");
 
 /**
  * authController
@@ -15,12 +22,16 @@ const { isValidEmail, isNonEmptyString } = require("../utils/validators");
  *   - Verification codes: nothing is actually emailed. Every account uses the
  *     same fixed TEMP_VERIFY_CODE below until an email service is picked —
  *     search this file for "TEMP" to find what to replace.
- *   - Photos: signup doesn't accept them yet. There's no file-storage service
- *     picked (same situation as email), so the frontend leaves them out of
- *     the request for now — see submitSignup in postdateApi.js.
  *   - Password recovery ("forgot password?"): still fully mocked on the
  *     frontend, since it also needs a real email service. Nothing here
  *     handles it yet.
+ *
+ * 🔌 PHOTOS: signup now accepts photos for real. authRoutes.js puts
+ * upload.array("photos", MAX_FILES) in front of this route, so a multipart
+ * request lands here with files on req.files and every other field as text
+ * on req.body (tags included — see parseListField below). A plain JSON
+ * request (no photos) still works exactly as before: req.files is just
+ * undefined, so `files` below is [].
  */
 
 const SALT_ROUNDS = 10; // 🎛️ bcrypt cost factor
@@ -78,8 +89,10 @@ function calculateAge(dateOfBirth) {
 /**
  * POST /api/signup
  * Creates the User (auth fields) and its Profile (dateOfBirth/gender/bio/
- * interests) together. If the Profile fails to save, the User is removed
- * again rather than leaving a half-created account behind.
+ * interests/photos) together. If the Profile fails to save, the User is
+ * removed again rather than leaving a half-created account behind — and any
+ * photos already written to disk for this request are cleaned up too, so a
+ * failed signup never leaves orphan files.
  */
 async function register(req, res) {
   try {
@@ -117,6 +130,24 @@ async function register(req, res) {
         .json({ message: `You must be at least ${MIN_SIGNUP_AGE} to sign up` });
     }
 
+    // On a multipart request every field (tags included) arrives as text,
+    // so this reads either a real array (plain JSON) or a JSON-encoded
+    // string of one (multipart) — see parseListField.
+    const parsedTags = parseListField(tags);
+    if (parsedTags === null) {
+      return res.status(400).json({ message: "Invalid taste tags" });
+    }
+    // No minimum enforced here: YourTasteForm already requires at least 3
+    // before it will call onConfirm, and a JSON caller with no taste step
+    // yet (or a test) shouldn't be blocked by a server-side minimum too.
+    const tagsResult = validateSelection(parsedTags, PERSONALITY_OPTIONS, {
+      max: LIMITS.maxPersonality,
+      label: "taste tags",
+    });
+    if (!tagsResult.ok) {
+      return res.status(400).json({ message: tagsResult.message });
+    }
+
     const normalizedEmail = email.trim().toLowerCase();
     const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
@@ -132,16 +163,24 @@ async function register(req, res) {
       lastName: lastName.trim(),
     });
 
+    // req.files only exists on a multipart request (see upload.array on
+    // this route in authRoutes.js). A plain JSON signup has no photos.
+    const files = req.files ?? [];
+    const savedPhotos = files.length > 0 ? await savePhotosToDisk(files) : [];
+
     try {
       await Profile.create({
         userId: user._id,
         dateOfBirth,
         gender,
         bio,
-        interests: Array.isArray(tags) ? tags : [],
+        interests: tagsResult.value,
+        photos: savedPhotos,
+        avatar: savedPhotos[0] ?? null,
       });
     } catch (profileErr) {
       await User.deleteOne({ _id: user._id }); // keep User and Profile in step
+      await Promise.all(savedPhotos.map((p) => deletePhotoFile(p).catch(() => {})));
       throw profileErr;
     }
 

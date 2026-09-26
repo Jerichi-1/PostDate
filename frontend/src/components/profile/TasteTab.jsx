@@ -1,41 +1,72 @@
 import { useEffect, useState } from "react";
-import { saveProfileTags } from "../../services/postdateApi";
+import { getTasteOptions, saveProfileTags, saveLookingFor } from "../../services/postdateApi";
 
 /**
- * TasteTab — the "Your taste" panel.
+ * TasteTab — the "Your taste" panel, now two independent sections:
+ *   "Your personality"  — who you are, capped at 5, saved via saveProfileTags
+ *   "Looking for"        — what you want from dating, capped at 5, saved via
+ *                          saveLookingFor
  *
- * Read mode: the chips are just labels; the selected ones carry a maroon
- * outline. Hit EDIT and the chips become toggle buttons; hit ✔ to save.
+ * Each section has its own EDIT / ✔ pair, so changing one never touches or
+ * re-saves the other. With 20 chips a side the panel can run long, so the
+ * whole tab scrolls internally (same pattern as ReviewsTab's `.reviews`)
+ * rather than growing the page to fit every chip.
+ *
+ * The chip lists and pick limits come from GET /api/tags (getTasteOptions)
+ * rather than being hard-coded here, so this can never drift from what the
+ * server actually accepts — see backend/utils/tasteOptions.js.
  *
  * Usage:
- *   <TasteTab tags={profile.tags} />
- *
- * `tags` is [{ label: string, selected: boolean }, ...]
+ *   <TasteTab
+ *     tags={profile.tags}                 // selected personality labels
+ *     lookingFor={profile.lookingFor}      // selected looking-for labels
+ *     onTagsSaved={(tags) => ...}          // keep the parent's cache in step
+ *     onLookingForSaved={(lookingFor) => ...}
+ *   />
  */
-export default function TasteTab({ tags = [] }) {
-  const [chips, setChips] = useState(tags);
+
+// 🎛️ Fallback limits used only while GET /api/tags is still loading, so the
+// UI doesn't briefly allow an unlimited pick before the real limits arrive.
+const FALLBACK_LIMITS = { minPersonality: 3, maxPersonality: 5, maxLookingFor: 5 };
+
+function buildChips(allLabels = [], selectedLabels = []) {
+  const selected = new Set(selectedLabels);
+  return allLabels.map((label) => ({ label, selected: selected.has(label) }));
+}
+
+function TasteSection({ title, allOptions, selectedLabels, minSelected = 0, maxSelected, onSave, emptyHint }) {
+  const [chips, setChips] = useState(() => buildChips(allOptions, selectedLabels));
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  /* keep local state in step when the parent finishes loading the profile */
-  useEffect(() => setChips(tags), [tags]);
+  // keep in step when the parent finishes loading, or after a save round-trips
+  useEffect(() => setChips(buildChips(allOptions, selectedLabels)), [allOptions, selectedLabels]);
 
-  function toggle(index) {
+  function toggle(label) {
     if (!editing) return;
-    setChips((prev) =>
-      prev.map((chip, i) =>
-        i === index ? { ...chip, selected: !chip.selected } : chip
-      )
-    );
+    setChips((prev) => {
+      const pickedCount = prev.filter((c) => c.selected).length;
+      const isPicking = !prev.find((c) => c.label === label)?.selected;
+      if (isPicking && pickedCount >= maxSelected) {
+        setMessage(`You can pick up to ${maxSelected}`);
+        return prev;
+      }
+      setMessage("");
+      return prev.map((c) => (c.label === label ? { ...c, selected: !c.selected } : c));
+    });
   }
 
   async function handleSave() {
+    const picked = chips.filter((c) => c.selected).map((c) => c.label);
+    if (picked.length < minSelected) {
+      setMessage(`Pick at least ${minSelected}`);
+      return;
+    }
     setSaving(true);
     setMessage("");
     try {
-      /* 🔌 BACKEND: PUT /api/profile/tags — see services/postdateApi.js */
-      await saveProfileTags(chips.filter((c) => c.selected).map((c) => c.label));
+      await onSave(picked);
       setEditing(false);
       setMessage("Saved");
     } catch {
@@ -46,14 +77,94 @@ export default function TasteTab({ tags = [] }) {
   }
 
   return (
+    <section className="taste-section">
+      <h3 className="taste-section-title">{title}</h3>
+
+      <div className="taste-chips">
+        {chips.length === 0 && <p className="taste-note">{emptyHint}</p>}
+
+        {chips.map((chip) =>
+          editing ? (
+            <button
+              key={chip.label}
+              type="button"
+              aria-pressed={chip.selected}
+              onClick={() => toggle(chip.label)}
+              className={`taste-chip taste-chip-editable${chip.selected ? " taste-chip-on" : ""}`}
+            >
+              {chip.label}
+            </button>
+          ) : (
+            <span key={chip.label} className={`taste-chip${chip.selected ? " taste-chip-on" : ""}`}>
+              {chip.label}
+            </span>
+          )
+        )}
+      </div>
+
+      <div className="taste-actions">
+        {message && <span className="taste-note" role="status">{message}</span>}
+
+        <button
+          type="button"
+          className="taste-btn taste-btn-save"
+          onClick={handleSave}
+          disabled={!editing || saving}
+          title={editing ? "Save" : "Hit edit first"}
+        >
+          {saving ? "…" : "✔"}
+          <span className="visually-hidden">Save {title}</span>
+        </button>
+
+        <button type="button" className="taste-btn" onClick={() => setEditing((v) => !v)}>
+          {editing ? "Cancel" : "Edit"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export default function TasteTab({ tags = [], lookingFor = [], onTagsSaved, onLookingForSaved }) {
+  const [options, setOptions] = useState(null); // { personality, lookingFor, limits }
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTasteOptions()
+      .then((data) => !cancelled && setOptions(data))
+      .catch(() => !cancelled && setLoadError(true));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const limits = options?.limits ?? FALLBACK_LIMITS;
+
+  return (
     <div className="taste">
       <style>{`
         .taste {
+          height: 100%;
+          overflow-y: auto;
+
           display: flex;
           flex-direction: column;
-          justify-content: space-between;
-          gap: clamp(16px, 2.5vw, 34px);
-          height: 100%;
+          gap: clamp(20px, 3vw, 36px);
+        }
+
+        .taste-section:not(:first-child) {
+          padding-top: clamp(16px, 2.4vw, 28px);
+          border-top: 1px solid rgba(43, 35, 32, 0.16);
+        }
+
+        .taste-section-title {
+          margin: 0 0 clamp(10px, 1.4vw, 18px);
+          font-family: var(--pd-mono);
+          font-weight: 700;
+          font-size: clamp(13px, 1.3vw, 22px);   /* 🎛️ section heading size */
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          color: var(--pd-maroon);
         }
 
         .taste-chips {
@@ -86,6 +197,7 @@ export default function TasteTab({ tags = [] }) {
           align-items: center;
           justify-content: flex-end;
           gap: clamp(8px, 1.1vw, 18px);
+          margin-top: clamp(10px, 1.4vw, 18px);
         }
 
         .taste-note {
@@ -122,59 +234,43 @@ export default function TasteTab({ tags = [] }) {
         }
       `}</style>
 
-      <div className="taste-chips">
-        {chips.length === 0 && (
-          <p className="taste-note">No interests picked yet. Hit edit to add some.</p>
-        )}
+      {loadError && (
+        <p className="taste-note">
+          Could not load the taste options right now. Refresh the page to try again.
+        </p>
+      )}
 
-        {chips.map((chip, i) =>
-          editing ? (
-            <button
-              key={chip.label}
-              type="button"
-              aria-pressed={chip.selected}
-              onClick={() => toggle(i)}
-              className={`taste-chip taste-chip-editable${
-                chip.selected ? " taste-chip-on" : ""
-              }`}
-            >
-              {chip.label}
-            </button>
-          ) : (
-            <span
-              key={chip.label}
-              className={`taste-chip${chip.selected ? " taste-chip-on" : ""}`}
-            >
-              {chip.label}
-            </span>
-          )
-        )}
-      </div>
+      {!loadError && !options && <p className="taste-note">Loading…</p>}
 
-      <div className="taste-actions">
-        {message && <span className="taste-note">{message}</span>}
+      {options && (
+        <>
+          <TasteSection
+            title="Your personality"
+            allOptions={options.personality}
+            selectedLabels={tags}
+            minSelected={limits.minPersonality}
+            maxSelected={limits.maxPersonality}
+            onSave={async (picked) => {
+              const saved = await saveProfileTags(picked);
+              onTagsSaved?.(saved);
+            }}
+            emptyHint="No interests picked yet. Hit edit to add some."
+          />
 
-        {/* Always on screen like the mockup, but it only does something once
-            you are actually editing — nothing to save otherwise. */}
-        <button
-          type="button"
-          className="taste-btn taste-btn-save"
-          onClick={handleSave}
-          disabled={!editing || saving}
-          title={editing ? "Save interests" : "Hit edit first"}
-        >
-          {saving ? "…" : "✔"}
-          <span className="visually-hidden">Save interests</span>
-        </button>
-
-        <button
-          type="button"
-          className="taste-btn"
-          onClick={() => (editing ? setEditing(false) : setEditing(true))}
-        >
-          {editing ? "Cancel" : "Edit"}
-        </button>
-      </div>
+          <TasteSection
+            title="Looking for"
+            allOptions={options.lookingFor}
+            selectedLabels={lookingFor}
+            minSelected={0}
+            maxSelected={limits.maxLookingFor}
+            onSave={async (picked) => {
+              const saved = await saveLookingFor(picked);
+              onLookingForSaved?.(saved);
+            }}
+            emptyHint="Not set yet. Hit edit to say what you're looking for."
+          />
+        </>
+      )}
     </div>
   );
 }

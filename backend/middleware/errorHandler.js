@@ -1,3 +1,5 @@
+const multer = require("multer");
+
 /**
  * asyncHandler
  * Wraps an async route handler so a rejected promise is forwarded to
@@ -21,6 +23,14 @@ function asyncHandler(fn) {
 function notFound(req, res, next) {
   res.status(404).json({ message: "Not found" });
 }
+
+// Multer's own error codes -> a message safe to show the person who hit it.
+// See middleware/upload.js for the limits these refer to.
+const MULTER_MESSAGES = {
+  LIMIT_FILE_SIZE: "Each photo must be under 5MB",
+  LIMIT_FILE_COUNT: "Too many photos in one upload",
+  LIMIT_UNEXPECTED_FILE: "Too many photos in one upload",
+};
 
 /**
  * Central error handler. Must be the LAST app.use() in server.js.
@@ -51,6 +61,17 @@ function errorHandler(err, req, res, next) {
   // Malformed ObjectId, etc.
   if (err.name === "CastError") {
     return res.status(400).json({ message: "Invalid request" });
+  }
+
+  // A photo upload broke a limit from middleware/upload.js (file too big,
+  // too many files) — 400, not the generic 500.
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ message: MULTER_MESSAGES[err.code] || "Could not upload that file" });
+  }
+
+  // Thrown by upload.js's fileFilter for a disallowed mimetype.
+  if (err.message === "UNSUPPORTED_FILE_TYPE") {
+    return res.status(400).json({ message: "Only JPG, PNG, WEBP or GIF images are allowed" });
   }
 
   const status = err.status || err.statusCode || 500;

@@ -28,13 +28,14 @@
    right here (e.g. `return { ...data, fullName: data.name }`) rather than
    editing components.
 
-   WHERE THINGS CURRENTLY STAND: submitSignup, loginUser, sendVerificationCode
-   and verifyCode are REAL — they call backend/controllers/authController.js
-   against Mongo. Everything else below the EMAIL VERIFICATION section
-   (recovery, discover, profile, admin) is still mock data/behaviour.
+   WHERE THINGS CURRENTLY STAND: submitSignup, loginUser, sendVerificationCode,
+   verifyCode, getProfile, getTasteOptions, saveProfileTags, saveLookingFor,
+   uploadProfilePhotos, deleteProfilePhoto and setProfileAvatar are REAL — they
+   call the backend against Mongo. Everything else below the EMAIL
+   VERIFICATION section (recovery, discover, admin) is still mock data/behaviour.
    ========================================================================== */
 
-import api from "../api";
+import api, { API_ORIGIN } from "../api";
 
 /* Tiny helper so mock data behaves like a real network call (async + a beat of
    latency). Only the still-mocked functions below use it. */
@@ -46,6 +47,17 @@ const delay = (value, ms = 220) =>
    account submitSignup() just created and is currently mid-verification —
    see the EMAIL VERIFICATION section below for where it's read. */
 let pendingVerificationEmail = "";
+
+/**
+ * Turns a path the backend stored (e.g. "/uploads/3f9a...c2.jpg") into a
+ * loadable <img src>. Every profile photo and avatar path is relative like
+ * this — nothing pre-builds the full URL, so this is the one place that
+ * decides how they're reached. Returns null straight through, since "no
+ * avatar yet" (null) should stay falsy rather than become a broken image src.
+ */
+export function toPhotoUrl(path) {
+  return path ? `${API_ORIGIN}${path}` : null;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    HOME / LANDING PAGE
@@ -75,28 +87,47 @@ export async function getLandingStats() {
  * @param  {{ firstName, middleName, lastName, email, password, birthdate,
  *            gender, bio, photos: File[], tags: string[] }} signup
  * @returns {{ userId: string }}
- * 🔌 Photos aren't sent yet — there's no file-storage service picked (same
- * situation as the email service below: nothing to plug them into yet).
- * Once there is: add multer (or similar) on this route, and switch this back
- * to posting FormData with the photo files included.
+ * Sent as multipart/form-data whenever there's at least one photo (the
+ * normal case — PhotosForm requires one by default), so the files can ride
+ * along with the rest of the form in the same request; otherwise it's sent
+ * as plain JSON, same as before photos existed. Either way `tags` travels as
+ * a JSON-encoded string on the multipart path, since every multipart field
+ * is text — the backend's parseListField (utils/tasteOptions.js) reads
+ * either form.
  */
 export async function submitSignup(signup) {
-  const { photos, ...body } = signup;
-  const { data } = await api.post("/signup", body);
+  const { photos = [], tags = [], ...fields } = signup;
   pendingVerificationEmail = signup.email.trim().toLowerCase();
+
+  if (photos.length === 0) {
+    const { data } = await api.post("/signup", { ...fields, tags });
+    return data;
+  }
+
+  const form = new FormData();
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) form.append(key, value);
+  });
+  form.append("tags", JSON.stringify(tags));
+  photos.forEach((file) => form.append("photos", file));
+
+  const { data } = await api.post("/signup", form);
   return data;
 }
 
 /**
- * The chips shown on step 3. Hard-coded for now; move to the DB when the
- * team wants admins to edit the list.
+ * The chip lists shown on sign-up step 3 and the profile "Your taste" tab —
+ * personality chips and "looking for" chips are separate lists, each with
+ * its own pick limit. Both sides are validated against these same lists
+ * server-side (backend/utils/tasteOptions.js), so a chip can never appear
+ * here and be rejected on save, or vice versa.
  * @route  GET /api/tags
- * @returns {string[]}
+ * @returns {{ personality: string[], lookingFor: string[],
+ *             limits: { minPersonality: number, maxPersonality: number, maxLookingFor: number } }}
  */
 export async function getTasteOptions() {
-  // const { data } = await api.get("/tags");
-  // return data;
-  return delay(MOCK_TASTE_OPTIONS);
+  const { data } = await api.get("/tags");
+  return data;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -250,43 +281,154 @@ export async function passProfile(profileId) {
    PROFILE PAGE
    ───────────────────────────────────────────────────────────────────────── */
 
+/** Whole years between an ISO date-of-birth and today, UTC-based to match the backend. */
+function calculateAgeFromISO(dateOfBirth) {
+  if (!dateOfBirth) return undefined;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return undefined;
+  const today = new Date();
+  let age = today.getUTCFullYear() - dob.getUTCFullYear();
+  const hadBirthdayThisYear =
+    today.getUTCMonth() > dob.getUTCMonth() ||
+    (today.getUTCMonth() === dob.getUTCMonth() && today.getUTCDate() >= dob.getUTCDate());
+  if (!hadBirthdayThisYear) age -= 1;
+  return age;
+}
+
+/** ISO date -> "MM/DD/YY", matching the mock's format. */
+function formatBirthdate(dateOfBirth) {
+  if (!dateOfBirth) return undefined;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return undefined;
+  const mm = String(dob.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dob.getUTCDate()).padStart(2, "0");
+  const yy = String(dob.getUTCFullYear()).slice(-2);
+  return `${mm}/${dd}/${yy}`;
+}
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** ISO date -> "Sep 2026", matching the mock's format. */
+function formatJoinDate(dateString) {
+  if (!dateString) return undefined;
+  const d = new Date(dateString);
+  if (Number.isNaN(d.getTime())) return undefined;
+  return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+function fullName(user) {
+  return [user?.firstName, user?.lastName].filter(Boolean).join(" ") || undefined;
+}
+
+function formatAddress(location) {
+  return [location?.city, location?.country].filter(Boolean).join(", ") || undefined;
+}
+
+/**
+ * GET /api/profile/me returns `{ user, profile }` (backend/controllers/
+ * controller.js's getMe) — this reshapes that into what the profile page's
+ * components expect, so nothing downstream has to know about the backend's
+ * document layout. `ratings`, `lastDate` and `reviews` have no backing route
+ * yet (Rating/Match exist as models, nothing serves them), so they come back
+ * empty/undefined and render as "—" or an empty state rather than guessed data.
+ */
+function mapProfileResponse({ user, profile } = {}) {
+  return {
+    name: fullName(user),
+    bio: profile?.bio,
+    address: formatAddress(profile?.location),
+    age: calculateAgeFromISO(profile?.dateOfBirth),
+    birthdate: formatBirthdate(profile?.dateOfBirth),
+    ratings: undefined,
+    dateJoined: formatJoinDate(user?.createdAt),
+    lastDate: undefined,
+    avatarPath: profile?.avatar ?? null,
+    tags: profile?.interests ?? [],
+    lookingFor: profile?.lookingFor?.intents ?? [],
+    photoPaths: profile?.photos ?? [],
+    reviews: [],
+  };
+}
+
 /**
  * Everything the profile page needs in one request.
- * @route  GET /api/profile/:userId   (use /api/profile/me for the logged-in user)
+ * @route  GET /api/profile/:userId   (only "me" actually resolves today —
+ *         the backend route is the literal /api/profile/me, not a :userId
+ *         param yet; see backend/routes/routes.js)
  * @returns {{ name, bio, address, age, birthdate, ratings, dateJoined,
- *             lastDate, avatarUrl, tags, photos, reviews }}
+ *             lastDate, avatarPath, tags, lookingFor, photoPaths, reviews }}
+ *          avatarPath/photoPaths are raw backend paths ("/uploads/x.jpg");
+ *          pass them through toPhotoUrl() to get something an <img> can load.
  */
 export async function getProfile(userId = "me") {
-  // const { data } = await api.get(`/profile/${userId}`);
-  // return data;
-  return delay(MOCK_PROFILE);
+  const { data } = await api.get(`/profile/${userId}`);
+  return mapProfileResponse(data);
 }
 
 /**
- * Saves the taste chips after the user hits ✔ on the Your Taste tab.
+ * Saves the "Your taste" personality chips after the user hits ✔. Replaces
+ * the full list, not a diff.
  * @route  PUT /api/profile/tags
- * @param  {string[]} tags  the full new list, not a diff
+ * @param  {string[]} tags
+ * @returns {string[]}  the saved list, echoed back
  */
 export async function saveProfileTags(tags) {
-  // const { data } = await api.put("/profile/tags", { tags });
-  // return data;
-  console.log("[postdateApi] saveProfileTags:", tags);
-  return delay({ ok: true });
+  const { data } = await api.put("/profile/tags", { tags });
+  return data.tags;
 }
 
 /**
- * Uploads new photos from the Your Photos tab.
+ * Saves the "Looking for" chips — kept as a separate save from personality
+ * tags, so editing one never touches the other.
+ * @route  PUT /api/profile/looking-for
+ * @param  {string[]} lookingFor
+ * @returns {string[]}  the saved list, echoed back
+ */
+export async function saveLookingFor(lookingFor) {
+  const { data } = await api.put("/profile/looking-for", { lookingFor });
+  return data.lookingFor;
+}
+
+/**
+ * Uploads new photos from the "Your photos" tab. If the account had no
+ * photos before this call, the first one uploaded also becomes the avatar
+ * (see backend/controllers/profileController.js) — `avatarPath` in the
+ * response reflects that.
  * @route  POST /api/profile/photos   (multipart, field name "photos")
  * @param  {File[]} files
- * @returns {{ id: string, url: string }[]}  the updated photo list
+ * @returns {{ photoPaths: string[], avatarPath: string|null }}
  */
 export async function uploadProfilePhotos(files) {
-  // const form = new FormData();
-  // files.forEach((file) => form.append("photos", file));
-  // const { data } = await api.post("/profile/photos", form);
-  // return data;
-  console.log("[postdateApi] uploadProfilePhotos:", files);
-  return delay(MOCK_PROFILE.photos);
+  const form = new FormData();
+  files.forEach((file) => form.append("photos", file));
+  const { data } = await api.post("/profile/photos", form);
+  return { photoPaths: data.photos, avatarPath: data.avatar };
+}
+
+/**
+ * Deletes one photo. `photoId` is the filename portion of its path (e.g.
+ * "3f9a1c...b2.jpg" out of "/uploads/3f9a1c...b2.jpg"). The backend refuses
+ * to delete the current avatar or the last photo left, and answers 400 with
+ * a message either way — surface that message rather than a generic one.
+ * @route  DELETE /api/profile/photos/:filename
+ * @param  {string} photoId
+ * @returns {string[]}  the remaining photo paths
+ */
+export async function deleteProfilePhoto(photoId) {
+  const { data } = await api.delete(`/profile/photos/${photoId}`);
+  return data.photos;
+}
+
+/**
+ * Makes an existing photo the profile picture. `photoPath` must be one of
+ * the account's own photo paths — the backend rejects anything else.
+ * @route  PUT /api/profile/avatar
+ * @param  {string} photoPath
+ * @returns {string}  the new avatar path, echoed back
+ */
+export async function setProfileAvatar(photoPath) {
+  const { data } = await api.put("/profile/avatar", { photo: photoPath });
+  return data.avatar;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -340,19 +482,6 @@ const MOCK_STATS = [
   { label: "dates per week per user", value: 3, display: "2 - 3" },
 ];
 
-const MOCK_TASTE_OPTIONS = [
-  "Coffee walks",
-  "Live music",
-  "Hiking",
-  "Film",
-  "Cooking together",
-  "Board games",
-  "Museums",
-  "Karaoke",
-  "Thrifting",
-  "Long drives",
-];
-
 /* Deliberately mixed genders and ages — POSTDATE!'s own proposal names single
    women, single men, polyamorous people, and gay men and women as the target
    users, so the sample grid shouldn't default to one kind of pairing. */
@@ -376,58 +505,6 @@ const MOCK_DISCOVER_PROFILES = [
   { id: "u17", name: "Ash", age: 28, distanceMi: 9, gender: "Non-binary", photoUrl: null, bio: "Cooking elaborate dinners for one, happy to make it two." },
   { id: "u18", name: "Delilah", age: 30, distanceMi: 4, gender: "Woman", photoUrl: null, bio: "Live music most weeks. Front row or not at all." },
 ];
-
-const MOCK_PROFILE = {
-  name: "Name",
-  avatarUrl: null, // null → the salmon circle placeholder is shown
-  bio: "A couple of sentences about you go here, straight from the signup form.",
-  address: "Baguio, PH",
-  age: 22,
-  birthdate: "01/01/04",
-  ratings: "4.6 / 5",
-  dateJoined: "Sep 2026",
-  lastDate: "2 days ago",
-  tags: [
-    { label: "Coffee walks", selected: false },
-    { label: "Live music", selected: true },
-    { label: "Hiking", selected: false },
-    { label: "Film photography", selected: true },
-    { label: "Cooking together", selected: false },
-    { label: "Board games", selected: false },
-    { label: "Museums", selected: false },
-    { label: "Late-night karaoke", selected: true },
-    { label: "Thrifting", selected: false },
-    { label: "Long drives", selected: false },
-  ],
-  photos: [
-    { id: "p1", url: null, span: "tall" }, // span: "tall" | "wide" | "box"
-    { id: "p2", url: null, span: "wide" },
-    { id: "p3", url: null, span: "box" },
-  ],
-  reviews: [
-    {
-      id: "r1",
-      author: "Name",
-      avatarUrl: null,
-      rating: "5/5",
-      body: "Sample review. Showed up on time, picked a great spot, and the conversation never stalled.",
-    },
-    {
-      id: "r2",
-      author: "Name",
-      avatarUrl: null,
-      rating: "4/5",
-      body: "Sample review. Friendly and easy to talk to — would happily go again.",
-    },
-    {
-      id: "r3",
-      author: "Name",
-      avatarUrl: null,
-      rating: "5/5",
-      body: "Sample review. Kind, funny, and respected the plan we agreed on beforehand.",
-    },
-  ],
-};
 
 const MOCK_ADMIN_SECTIONS = {
   statistics: {
@@ -456,4 +533,4 @@ const MOCK_ADMIN_SECTIONS = {
   },
 };
 
-export { MOCK_PROFILE, MOCK_STATS };
+export { MOCK_STATS };
