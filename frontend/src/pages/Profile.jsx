@@ -7,7 +7,8 @@
  *   │ ┌────────┐ │ TASTE │ REVIEWS │ PHOTOS │ ⚙ │      │
  *   │ │ avatar │ ├──────────────────────────────────┐  │
  *   │ │ name   │ │                                  │  │  tan panel
- *   │ │ bio    │ │   whichever tab is selected      │  │
+ *   │ │ (edit) │ │   whichever tab is selected      │  │
+ *   │ │ bio    │ │                                  │  │
  *   │ │ meta   │ │                                  │  │
  *   │ └────────┘ └──────────────────────────────────┘  │
  *   └──────────────────────────────────────────────────┘
@@ -19,6 +20,11 @@
  * returns: avatarPath/photoPaths are raw backend paths, turned into
  * loadable URLs via toPhotoUrl() only where something needs to render an
  * <img> (ProfileIdentity here; PhotosTab does its own for the gallery).
+ *
+ * "Edit profile" (the link ProfileIdentity renders under the name) opens
+ * EditProfileModal — see that component for why it only ever touches
+ * Profile-document fields (display name, bio, gender, birthdate, location),
+ * never the User account's email or password.
  */
 import { useEffect, useState } from "react";
 
@@ -29,8 +35,9 @@ import TasteTab from "../components/profile/TasteTab";
 import ReviewsTab from "../components/profile/ReviewsTab";
 import PhotosTab from "../components/profile/PhotosTab";
 import SettingsTab from "../components/profile/SettingsTab";
+import EditProfileModal from "../components/profile/EditProfileModal";
 
-import { getProfile, toPhotoUrl } from "../services/postdateApi";
+import { getProfile, toPhotoUrl, updateProfileDetails } from "../services/postdateApi";
 
 export default function Profile() {
   /* 🎛️ Which tab opens first. One of: taste | reviews | photos | settings */
@@ -38,6 +45,7 @@ export default function Profile() {
 
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +141,7 @@ export default function Profile() {
           <div className="profile-panel">
             <ProfileIdentity
               profile={{ ...profile, avatarUrl: toPhotoUrl(profile.avatarPath) }}
+              onEdit={() => setEditOpen(true)}
             />
 
             <div className="profile-right">
@@ -169,6 +178,26 @@ export default function Profile() {
           </div>
         )}
       </main>
+
+      {/* 🔌 BACKEND: PUT /api/profile/details — see updateProfileDetails in
+          services/postdateApi.js. Still mock; the save round-trips through
+          it and merges straight back over `profile` either way. */}
+      <EditProfileModal
+        open={editOpen}
+        profile={{
+          displayName: profile?.displayName,
+          bio: profile?.bio,
+          gender: profile?.gender,
+          birthdate: profile?.rawBirthdate,
+          city: profile?.city,
+          country: profile?.country,
+        }}
+        onClose={() => setEditOpen(false)}
+        onSave={async (updates) => {
+          const saved = await updateProfileDetails(updates);
+          setProfile((p) => ({ ...p, ...saved }));
+        }}
+      />
     </div>
   );
 }

@@ -1,13 +1,17 @@
 /**
  * ProfileIdentity
  * The left column of the profile page: the salmon avatar circle overlapping a
- * cream card that holds the name, the bio, and the six meta rows
- * (address / age / birthdate / ratings / date joined / last date).
+ * cream card that holds the name, the bio, and the meta rows (address / age /
+ * birthdate / gender / ratings / date joined / last date).
  *
  * Usage:
- *   <ProfileIdentity profile={profile} />
+ *   <ProfileIdentity profile={profile} onEdit={() => setEditOpen(true)} />
  *
  * `profile` is whatever services/postdateApi.js → getProfile() returns.
+ * `onEdit` is optional — pass it and an "Edit profile" link appears under
+ * the name, opening components/profile/EditProfileModal.jsx. Leave it off
+ * and the card renders exactly as before (e.g. for viewing someone else's
+ * profile later, where editing wouldn't make sense).
  */
 
 /* 🎛️ EDIT THE META ROWS HERE ----------------------------------------------
@@ -17,12 +21,24 @@ const META_ROWS = [
   { key: "address", label: "Address" },
   { key: "age", label: "Age" },
   { key: "birthdate", label: "Birthdate" },
+  { key: "gender", label: "Gender" },
   { key: "ratings", label: "Ratings" },
   { key: "dateJoined", label: "Date joined" },
   { key: "lastDate", label: "Last date" },
 ];
 
-export default function ProfileIdentity({ profile = {} }) {
+/* profile.gender is stored as the raw slug WhoAreYouForm/EditProfileModal's
+   <select> sends ("nonbinary", "self-describe", ...) so the edit form can
+   prefill correctly — this just prettifies it for the read-only row here. */
+const GENDER_LABELS = {
+  female: "Female",
+  male: "Male",
+  nonbinary: "Non-binary",
+  "self-describe": "Self-described",
+  "prefer-not-to-say": "Prefer not to say",
+};
+
+export default function ProfileIdentity({ profile = {}, onEdit }) {
   return (
     <div className="pid">
       <style>{`
@@ -68,8 +84,16 @@ export default function ProfileIdentity({ profile = {} }) {
           text-align: left;
         }
 
-        .pid-name {
+        .pid-name-row {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.25em;
           margin: 0 0 0.35em;
+        }
+
+        .pid-name {
+          margin: 0;
           font-family: var(--pd-display);
           font-weight: 400;
           font-size: clamp(22px, 2.6vw, 46px);   /* 🎛️ name size */
@@ -77,6 +101,26 @@ export default function ProfileIdentity({ profile = {} }) {
           text-align: center;
           color: var(--pd-maroon);
         }
+
+        /* 🎛️ the "Edit profile" trigger under the name — quiet on purpose,
+           a text link rather than another loud pill, since the card already
+           has one (the avatar) doing the attention-grabbing work. */
+        .pid-edit-btn {
+          background: none;
+          border: none;
+          padding: 0;
+          font-family: var(--pd-mono);
+          font-size: clamp(10px, 0.85vw, 14px);
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          text-decoration: underline;
+          text-underline-offset: 3px;
+          color: var(--pd-maroon);
+          opacity: 0.75;
+          cursor: pointer;
+          transition: opacity 0.15s ease;
+        }
+        .pid-edit-btn:hover { opacity: 1; }
 
         .pid-heading {
           margin: 0 0 0.3em;
@@ -127,7 +171,17 @@ export default function ProfileIdentity({ profile = {} }) {
       )}
 
       <div className="pid-card">
-        <h1 className="pid-name">{profile.name ?? "Name"}</h1>
+        <div className="pid-name-row">
+          {/* profile.displayName is Profile.profileName — falls back to the
+              account's legal name (profile.name) when it hasn't been set. */}
+          <h1 className="pid-name">{profile.displayName || profile.name || "Name"}</h1>
+
+          {onEdit && (
+            <button type="button" className="pid-edit-btn" onClick={onEdit}>
+              Edit profile
+            </button>
+          )}
+        </div>
 
         <h2 className="pid-heading">Bio</h2>
         <p className="pid-bio">{profile.bio ?? "No bio yet."}</p>
@@ -136,7 +190,11 @@ export default function ProfileIdentity({ profile = {} }) {
           {META_ROWS.map(({ key, label }) => (
             <div key={key} style={{ display: "contents" }}>
               <dt>{label}</dt>
-              <dd>{profile[key] ?? "—"}</dd>
+              <dd>
+                {key === "gender"
+                  ? GENDER_LABELS[profile.gender] ?? profile.gender ?? "—"
+                  : profile[key] ?? "—"}
+              </dd>
             </div>
           ))}
         </dl>

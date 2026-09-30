@@ -32,7 +32,8 @@
    verifyCode, getProfile, getTasteOptions, saveProfileTags, saveLookingFor,
    uploadProfilePhotos, deleteProfilePhoto and setProfileAvatar are REAL — they
    call the backend against Mongo. Everything else below the EMAIL
-   VERIFICATION section (recovery, discover, admin) is still mock data/behaviour.
+   VERIFICATION section (recovery, discover, admin), plus updateProfileDetails,
+   is still mock data/behaviour.
    ========================================================================== */
 
 import api, { API_ORIGIN } from "../api";
@@ -306,6 +307,21 @@ function formatBirthdate(dateOfBirth) {
   return `${mm}/${dd}/${yy}`;
 }
 
+/**
+ * ISO date/datetime -> "YYYY-MM-DD", the one format <input type="date">
+ * accepts as a value. Kept separate from formatBirthdate's "MM/DD/YY" (which
+ * is for reading, not editing) so EditProfileModal always has something it
+ * can drop straight into its date field.
+ */
+function toDateInputValue(dateOfBirth) {
+  if (!dateOfBirth) return undefined;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return undefined;
+  const mm = String(dob.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dob.getUTCDate()).padStart(2, "0");
+  return `${dob.getUTCFullYear()}-${mm}-${dd}`;
+}
+
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** ISO date -> "Sep 2026", matching the mock's format. */
@@ -331,14 +347,28 @@ function formatAddress(location) {
  * document layout. `ratings`, `lastDate` and `reviews` have no backing route
  * yet (Rating/Match exist as models, nothing serves them), so they come back
  * empty/undefined and render as "—" or an empty state rather than guessed data.
+ *
+ * Alongside the display-formatted fields (`address`, `birthdate`, `age`) this
+ * also exposes the raw, editable values EditProfileModal needs to prefill its
+ * form — `displayName`, `gender`, `city`, `country` and `rawBirthdate`. All
+ * five live on the Profile document, never the User account.
  */
 function mapProfileResponse({ user, profile } = {}) {
   return {
     name: fullName(user),
+    // Profile.profileName — a display name distinct from the account's
+    // legal name. Undefined until someone sets one via EditProfileModal.
+    displayName: profile?.profileName || undefined,
     bio: profile?.bio,
     address: formatAddress(profile?.location),
     age: calculateAgeFromISO(profile?.dateOfBirth),
     birthdate: formatBirthdate(profile?.dateOfBirth),
+    gender: profile?.gender,
+    city: profile?.location?.city,
+    country: profile?.location?.country,
+    // Raw form value for EditProfileModal's <input type="date">; the
+    // formatted `birthdate` above stays what the read-only meta row shows.
+    rawBirthdate: toDateInputValue(profile?.dateOfBirth),
     ratings: undefined,
     dateJoined: formatJoinDate(user?.createdAt),
     lastDate: undefined,
@@ -355,8 +385,9 @@ function mapProfileResponse({ user, profile } = {}) {
  * @route  GET /api/profile/:userId   (only "me" actually resolves today —
  *         the backend route is the literal /api/profile/me, not a :userId
  *         param yet; see backend/routes/routes.js)
- * @returns {{ name, bio, address, age, birthdate, ratings, dateJoined,
- *             lastDate, avatarPath, tags, lookingFor, photoPaths, reviews }}
+ * @returns {{ name, displayName, bio, address, age, birthdate, rawBirthdate,
+ *             gender, city, country, ratings, dateJoined, lastDate,
+ *             avatarPath, tags, lookingFor, photoPaths, reviews }}
  *          avatarPath/photoPaths are raw backend paths ("/uploads/x.jpg");
  *          pass them through toPhotoUrl() to get something an <img> can load.
  */
@@ -387,6 +418,39 @@ export async function saveProfileTags(tags) {
 export async function saveLookingFor(lookingFor) {
   const { data } = await api.put("/profile/looking-for", { lookingFor });
   return data.lookingFor;
+}
+
+/**
+ * Saves the fields from the profile page's "Edit profile" pop-up
+ * (components/profile/EditProfileModal.jsx): display name, bio, gender,
+ * birthdate, and location. Every one of these lives on the Profile
+ * document — never the User account, so this route can't touch email or
+ * password (see the pop-up's own scope note for why that split matters).
+ * @route  PUT /api/profile/details
+ * @param  {{ displayName?: string, bio?: string, gender: string,
+ *            birthdate: string, city?: string, country?: string }} updates
+ *          `birthdate` is "YYYY-MM-DD", straight from the date input.
+ * @returns {{ displayName, bio, gender, city, country, address, age,
+ *             birthdate, rawBirthdate }}
+ *          Shaped to match mapProfileResponse's own field names, so the
+ *          caller can spread this straight over the existing profile state
+ *          — see pages/Profile.jsx.
+ */
+export async function updateProfileDetails(updates) {
+  // const { data } = await api.put("/profile/details", updates);
+  // return mapProfileDetailsResponse(data);
+  const { displayName, bio, gender, birthdate, city, country } = updates;
+  return delay({
+    displayName: displayName || undefined,
+    bio,
+    gender,
+    city,
+    country,
+    address: formatAddress({ city, country }),
+    age: calculateAgeFromISO(birthdate),
+    birthdate: formatBirthdate(birthdate),
+    rawBirthdate: birthdate,
+  });
 }
 
 /**
