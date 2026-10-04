@@ -1,16 +1,22 @@
 /**
  * AdminSidebar
  * The "DASHBOARD" heading plus the column of maroon pill buttons on the staff
- * dashboard. Admins see nine sections, moderators see six — that is the only
- * difference between the two screens in the Figma.
+ * dashboard. Admins see ten sections, moderators see six.
+ *
+ * 🆕 Admins now have a Ratings pill too (the Figma only gave it to
+ * moderators). The server lets both roles moderate ratings, so this is purely a
+ * sidebar entry — delete the one line below to take it away again.
+ *
+ * 🆕 `badges` puts a small count on a pill, e.g. { reports: 4, appeals: 1 } —
+ * the dashboard feeds it the number of reports and appeals waiting.
  *
  * Usage:
- *   <AdminSidebar role="admin" active={section} onChange={setSection} />
+ *   <AdminSidebar role="admin" active={section} onChange={setSection} badges={{ reports: 4 }} />
  */
 
 /* 🎛️ EDIT THE SECTION LISTS HERE ------------------------------------------
-   `id` is the slug handed to the backend (GET /api/admin/:id), `label` is the
-   text on the pill. Keep ids lowercase and hyphenated.                     */
+   `id` is the section key AdminDashboard switches on, `label` is the text on
+   the pill. Keep ids lowercase and hyphenated.                             */
 export const SECTIONS = {
   admin: [
     { id: "statistics", label: "Statistics" },
@@ -18,6 +24,7 @@ export const SECTIONS = {
     { id: "reports", label: "Reports" },
     { id: "users", label: "Users" },
     { id: "appeals", label: "Appeals" },
+    { id: "ratings", label: "Ratings" }, // 🆕 added for admins
     { id: "privacy", label: "Privacy" },
     { id: "server-logs", label: "Server logs" },
     { id: "security-logs", label: "Security logs" },
@@ -33,7 +40,7 @@ export const SECTIONS = {
   ],
 };
 
-export default function AdminSidebar({ role = "admin", active, onChange }) {
+export default function AdminSidebar({ role = "admin", active, onChange, badges = {} }) {
   const items = SECTIONS[role] ?? SECTIONS.admin;
 
   return (
@@ -56,6 +63,11 @@ export default function AdminSidebar({ role = "admin", active, onChange }) {
         }
 
         .asidebar-item {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.6em;
+
           background: var(--pd-maroon);
           border: 2px solid transparent;
           border-radius: 20px;
@@ -72,11 +84,25 @@ export default function AdminSidebar({ role = "admin", active, onChange }) {
           transition: transform 0.15s ease, background-color 0.15s ease;
         }
         .asidebar-item:hover { transform: translateX(3px); }
+        .asidebar-item:focus-visible { outline-color: var(--pd-cream); }
 
         /* the open section gets a pale outline so it reads as selected */
         .asidebar-item[aria-current="page"] {
           border-color: var(--pd-pink);
           background: #c9445e;
+        }
+
+        /* count of things waiting — ink on salmon, readable at a glance */
+        .asidebar-badge {
+          min-width: 1.7em;
+          padding: 0.1em 0.5em;
+          border-radius: 999px;
+          background: var(--pd-salmon);
+          color: var(--pd-ink);
+          font-weight: 700;
+          font-size: 0.9em;
+          line-height: 1.5;
+          letter-spacing: 0;
         }
 
         @media (max-width: 760px) {
@@ -87,17 +113,26 @@ export default function AdminSidebar({ role = "admin", active, onChange }) {
 
       <h2 className="asidebar-title">Dashboard</h2>
 
-      {items.map(({ id, label }) => (
-        <button
-          key={id}
-          type="button"
-          className="asidebar-item"
-          aria-current={active === id ? "page" : undefined}
-          onClick={() => onChange?.(id)}
-        >
-          {label}
-        </button>
-      ))}
+      {items.map(({ id, label }) => {
+        const count = badges[id];
+        return (
+          <button
+            key={id}
+            type="button"
+            className="asidebar-item"
+            aria-current={active === id ? "page" : undefined}
+            onClick={() => onChange?.(id)}
+          >
+            {label}
+            {count > 0 && (
+              <span className="asidebar-badge">
+                {count}
+                <span className="visually-hidden"> waiting</span>
+              </span>
+            )}
+          </button>
+        );
+      })}
     </nav>
   );
 }

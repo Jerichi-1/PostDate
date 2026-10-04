@@ -5,6 +5,8 @@ const helmet = require("helmet");
 const connectDB = require("./config/db.js");
 const authRoutes = require("./routes/authRoutes.js");
 const profileRoutes = require("./routes/profileRoutes.js");
+const adminRoutes = require("./routes/adminRoutes.js");
+const safetyRoutes = require("./routes/safetyRoutes.js");
 const apiRoutes = require("./routes/routes.js");
 const { generalLimiter } = require("./middleware/rateLimiter.js");
 const { notFound, errorHandler } = require("./middleware/errorHandler.js");
@@ -64,6 +66,14 @@ app.use("/api", authRoutes);
 // taste tags, looking-for, photo upload/delete, avatar — see
 // controllers/profileController.js
 app.use("/api", profileRoutes);
+
+// 🆕 staff dashboard (/api/admin/...) — see controllers/adminController.js.
+// Every route in there needs a logged-in moderator or admin.
+app.use("/api", adminRoutes);
+
+// 🆕 members filing reports, suspended members filing appeals — see
+// controllers/safetyController.js
+app.use("/api", safetyRoutes);
 
 // everything else — see controllers/controller.js + routes/routes.js
 app.use("/api", apiRoutes);

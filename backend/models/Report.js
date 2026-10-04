@@ -22,6 +22,17 @@ const reportSchema = new mongoose.Schema(
       required: true
     },
 
+    // 🆕 Whose account the report is about. For targetType "user" this is
+    // the same as targetId; for a post / comment / message it's the author,
+    // looked up when the report is filed (controllers/safetyController.js).
+    // It's what lets staff suspend "the person behind this report" in one
+    // click no matter what kind of thing was reported.
+    reportedUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+
     reason: {
       type: String,
       required: true,
@@ -40,6 +51,20 @@ const reportSchema = new mongoose.Schema(
       default: "pending"
     },
 
+    // 🆕 The staff member who last touched it, and what they wrote.
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+
+    resolutionNote: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: ""
+    },
+
     resolvedAt: {
       type: Date,
       default: null
@@ -55,5 +80,8 @@ reportSchema.index({ status: 1, createdAt: -1 });
 
 // Find reports made by a user
 reportSchema.index({ reporterId: 1 });
+
+// 🆕 Find reports about a user (the Users table's "Reports" column)
+reportSchema.index({ reportedUserId: 1 });
 
 module.exports = mongoose.model("Report", reportSchema);

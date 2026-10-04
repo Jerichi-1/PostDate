@@ -1,6 +1,10 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
+// 🎛️ How often a busy user's lastActiveAt is allowed to be written. Without
+// this, every single API call would also be a database write.
+const ACTIVE_TOUCH_MS = 60 * 1000;
+
 /**
  * requireAuth
  * Verifies the Bearer token from the Authorization header and attaches
@@ -9,6 +13,10 @@ const User = require("../models/User");
  * Deliberately re-reads the user from the DB on every request rather than
  * trusting the role baked into the token — a 7-day-old token shouldn't still
  * carry admin rights if that account got demoted (or deactivated) yesterday.
+ * That same re-read is what makes a suspension take effect immediately.
+ *
+ * Also stamps User.lastActiveAt (at most once a minute) — that's what the
+ * dashboard's "Active" counter reads.
  *
  * Usage:
  *   router.get("/profile/me", requireAuth, asyncHandler(getMe));
@@ -24,9 +32,17 @@ async function requireAuth(req, res, next) {
 
     const payload = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await User.findById(payload.userId).select("_id role isActive");
+    const user = await User.findById(payload.userId).select("_id role isActive lastActiveAt");
     if (!user || !user.isActive) {
       return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const now = Date.now();
+    if (!user.lastActiveAt || now - user.lastActiveAt.getTime() > ACTIVE_TOUCH_MS) {
+      // Fire and forget: a failed activity stamp must never fail the request.
+      User.updateOne({ _id: user._id }, { $set: { lastActiveAt: new Date(now) } })
+        .exec()
+        .catch((err) => console.error("[auth] could not stamp lastActiveAt:", err.message));
     }
 
     req.user = { userId: user._id.toString(), role: user.role };

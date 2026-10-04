@@ -76,6 +76,31 @@ const ratingSchema = new mongoose.Schema(
     isPublic: {
       type: Boolean,
       default: true
+    },
+
+    // 🆕 Moderation. A hidden rating is kept (so a decision can be reversed
+    // and audited) but is left out of every average and public listing.
+    isHidden: {
+      type: Boolean,
+      default: false
+    },
+
+    hiddenReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: ""
+    },
+
+    hiddenBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+
+    hiddenAt: {
+      type: Date,
+      default: null
     }
   },
   {
@@ -92,6 +117,12 @@ ratingSchema.index({
 // Used when displaying ratings written by a user
 ratingSchema.index({
   reviewerId: 1,
+  createdAt: -1
+});
+
+// 🆕 Moderation queue: hidden / visible, newest first
+ratingSchema.index({
+  isHidden: 1,
   createdAt: -1
 });
 

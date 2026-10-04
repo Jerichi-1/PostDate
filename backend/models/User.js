@@ -51,10 +51,40 @@ const userSchema = new mongoose.Schema(
       default: false
     },
 
-    // Allows you to disable an account without deleting it
+    // Allows you to disable an account without deleting it.
+    // Staff suspend a member by setting this to false (see
+    // controllers/adminController.js) — log-in and requireAuth both refuse
+    // inactive accounts, so a suspension takes effect on the very next request.
     isActive: {
       type: Boolean,
       default: true
+    },
+
+    // 🆕 Last time this account made an authenticated request. Written at most
+    // once a minute by requireAuth (middleware/auth.js). Drives the dashboard's
+    // "Active" counter.
+    lastActiveAt: {
+      type: Date,
+      default: null
+    },
+
+    // 🆕 Suspension bookkeeping. Cleared again on reinstatement.
+    suspendedAt: {
+      type: Date,
+      default: null
+    },
+
+    suspensionReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: ""
+    },
+
+    suspendedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
     }
   },
   {
@@ -62,6 +92,10 @@ const userSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+// 🆕 Admin dashboard: newest members first, and "who's active right now"
+userSchema.index({ createdAt: -1 });
+userSchema.index({ role: 1, lastActiveAt: -1 });
 
 // Export the User model
 module.exports = mongoose.model("User", userSchema);
