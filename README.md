@@ -36,4 +36,4 @@ npm audit --prefix backend
 npm audit --prefix frontend
 ```
 
-162 tests across seven suites passed locally, including real disposable-MongoDB auth, recovery, ownership, matching, shared counters and backup restoration. Email/storage provider calls are mocked. The production frontend builds successfully. See [SECURITY.md](SECURITY.md) for controls, limitations and the optional Anthropic review template.
+163 tests across eight suites passed locally, including real disposable-MongoDB auth, recovery, ownership, matching, shared counters and backup restoration. Email/storage provider calls are mocked. The production frontend builds successfully. See [SECURITY.md](SECURITY.md) for controls, limitations and the optional Anthropic review template.

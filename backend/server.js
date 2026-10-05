@@ -4,6 +4,7 @@ dotenv.config({ path: path.join(__dirname, ".env"), quiet: true });
 const express = require("express");
 const helmet = require("helmet");
 const mongoose = require("mongoose");
+const { startupStep } = require("./utils/startup");
 const connectDB = require("./config/db");
 const { generalLimiter } = require("./middleware/rateLimiter");
 const { notFound, errorHandler } = require("./middleware/errorHandler");
@@ -63,13 +64,13 @@ function createApp() {
 }
 
 async function start() {
-  validateEnvironment();
-  await connectDB();
-  await ensureUploadDir();
-  await require("./models/RateCounter").init();
-  await require("./models/Swipe").init();
-  await require("./models/Match").init();
-  const app = createApp();
+  await startupStep("environment configuration", validateEnvironment);
+  await startupStep("MongoDB connection", connectDB);
+  await startupStep("photo storage", ensureUploadDir);
+  await startupStep("rate counter indexes", () => require("./models/RateCounter").init());
+  await startupStep("swipe indexes", () => require("./models/Swipe").init());
+  await startupStep("match indexes", () => require("./models/Match").init());
+  const app = await startupStep("HTTP configuration and client origin", createApp);
   const server = app.listen(process.env.PORT || 5000, () => console.log("Server started"));
   for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
     const timer = setTimeout(() => process.exit(1), 10000);
@@ -79,8 +80,8 @@ async function start() {
   return server;
 }
 
-if (require.main === module) start().catch(async () => {
-  console.error("Startup failed: check server environment and database connectivity");
+if (require.main === module) start().catch(async (error) => {
+  console.error(error.safeStartupMessage || "Startup failed: check server configuration");
   await mongoose.disconnect();
   process.exitCode = 1;
 });

@@ -38,7 +38,7 @@ Password recovery now uses emailed HMAC-protected codes, five-minute expiry and 
 
 ## Verification
 
-Final local validation: 162 tests passed across seven suites; the production frontend build passed; root, backend and frontend npm audits each reported zero known vulnerabilities, including development dependencies. `git diff --check` passed.
+Final local validation: 163 tests passed across eight suites; the production frontend build passed; root, backend and frontend npm audits each reported zero known vulnerabilities, including development dependencies. `git diff --check` passed.
 
 Run `npm test --prefix backend` and `npm run build --prefix frontend`. Auth and admin tests use a disposable MongoDB instance, the same application factory as production, and mocked mail delivery. Tests cover permissions, ownership, code guessing/expiry/reuse, logout revocation, CSRF/CORS, NoSQL operators, password hashing, uploads and safe errors. Run `npm audit` in the root, backend and frontend to check both runtime and development dependencies.
 
