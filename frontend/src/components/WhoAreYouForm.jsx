@@ -39,7 +39,7 @@ const GENDER_OPTIONS = [
   { value: "prefer-not-to-say", label: "Prefer not to say" },
 ];
 
-const MIN_PASSWORD_LENGTH = 8; // 🎛️ shortest password we accept
+const MIN_PASSWORD_LENGTH = 12; // 🎛️ shortest password we accept
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const MIN_AGE = 18; // 🎛️ keep in sync with MIN_SIGNUP_AGE in backend/controllers/authController.js

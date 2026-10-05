@@ -39,7 +39,7 @@ import AppealsSection from "../components/admin/AppealsSection";
 import ActivitySection from "../components/admin/ActivitySection";
 import { EmptyState, SectionHead, Sheet, ToastProvider } from "../components/admin/adminUi";
 import { getAdminOverview } from "../services/adminApi";
-import { clearToken } from "../auth";
+import { clearToken, logout } from "../auth";
 import { formatNumber } from "../components/admin/format";
 import "../components/admin/admin.css";
 
@@ -60,9 +60,16 @@ export default function AdminDashboard({ role = "admin" }) {
   const [section, setSection] = useState(sections[0].id);
   const [overview, setOverview] = useState(null);
 
-  const logOut = useCallback(() => {
-    clearToken();
-    navigate("/login", { replace: true });
+  const logOut = useCallback(async () => {
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        clearToken();
+        navigate("/login", { replace: true });
+      } else { window.alert("Could not log out. Please try again."); }
+    }
   }, [navigate]);
 
   const refreshOverview = useCallback(() => {

@@ -118,7 +118,7 @@ async function createReport(req, res) {
  */
 async function createAppeal(req, res) {
   const { email, password, message } = req.body ?? {};
-  if (!isValidEmail(email) || !isNonEmptyString(password)) {
+  if (!isValidEmail(email) || !isNonEmptyString(password) || Buffer.byteLength(password, "utf8") > 72) {
     return res.status(400).json({ message: "Email and password are required" });
   }
   const text = asString(message, MAX_APPEAL_LENGTH).trim();
@@ -126,7 +126,7 @@ async function createAppeal(req, res) {
     return res.status(400).json({ message: `Tell us what happened (at least ${MIN_APPEAL_LENGTH} characters)` });
   }
 
-  const user = await User.findOne({ email: email.trim().toLowerCase() });
+  const user = await User.findOne({ email: email.trim().toLowerCase() }).select("+passwordHash");
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
     return res.status(401).json({ message: "Wrong email or password" });
   }

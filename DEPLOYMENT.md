@@ -1,0 +1,57 @@
+# PostDate deployment
+
+Prepared October 6, 2026. No hosted service or provider account has been created, no live credentials have been supplied, and no paid plan has been selected.
+
+## Selected services
+
+| Purpose | Provider | Local preparation |
+| --- | --- | --- |
+| Same-origin website/API and TLS | Render | `render.yaml`, production static serving, `/healthz`, graceful shutdown |
+| Database | MongoDB Atlas | Mongoose ownership checks, database-backed production rate counters |
+| Verification and recovery email | Resend | Server-side email API, expiring one-use codes |
+| Photo storage | Cloudinary | Signed server-side upload/delete, decoded and re-encoded WebP images |
+
+Render's [free plan](https://render.com/docs/free) sleeps after inactivity and has an ephemeral filesystem. It is a preview option; choose a paid always-on service for a public launch after reviewing cost. Cloudinary avoids storing new photos on that filesystem. Atlas [free clusters](https://www.mongodb.com/docs/atlas/reference/free-shared-limitations/) do not provide managed backups. Review [Resend's current limits](https://resend.com/pricing) and verify a sender domain before sending to real members. No plan upgrade is automatic here.
+
+## Accounts and release procedure
+
+1. Connect the offered Render and Resend plugins, or use those providers' dashboards. Create Atlas and Cloudinary accounts under your own identity. A verified sender domain you control is required for normal email delivery. Account credentials belong in provider secret settings, never chat or Git.
+2. Put this reviewed code and its lockfiles in your repository. Before release run `npm ci --prefix backend`, `npm test --prefix backend`, `npm ci --prefix frontend`, `npm run build --prefix frontend` and the three npm audits. The active GitHub security workflow repeats local checks when pushed. Deployment is manual in the blueprint.
+3. In Atlas, create a PostDate database and an application user restricted to that database's `readWrite` role. Use a TLS connection URI. Allow the Render service's documented outbound IPs, rather than opening access to all addresses. Do not use the database administrator credential for the app.
+4. Review and import `render.yaml`. Set `MONGO_URI`, `MAIL_API_KEY`, `MAIL_FROM`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` through Render's environment settings. Render generates `JWT_SECRET`; rotating it signs everyone out. The app uses Render's `RENDER_EXTERNAL_URL` as its exact allowed origin. If you add a custom domain, set `CLIENT_URL` to that exact HTTPS origin without a trailing slash.
+5. Configure `TRUST_PROXY` with the actual ingress proxy IPs/CIDRs, verified for the service, and ensure the backend cannot be reached outside that ingress. Do not guess or set `true`. Before public launch, verify different clients receive separate rate counters and a forged `X-Forwarded-For` cannot choose its counter. Without correct proxy settings the app uses the connection IP, which can group clients behind a proxy; this must be resolved against the real hosting topology.
+6. Startup creates the shared counter and swipe/match indexes. If migrating an existing database, first check for duplicate swipe pairs and resolve them with a backup and deliberate migration. New swipes have a unique owner/target index, new matches a unique canonical pair key. Old duplicate match rows also need review. Existing members with the former fake verification flag must verify email again.
+7. Existing local photos must be migrated before changing `STORAGE_PROVIDER` to `cloudinary`; switching the setting does not upload old files. The new Cloudinary adapter accepts only new random WebP names. Photo URLs remain public; authenticated private-photo delivery is a separate product decision.
+8. Provision staff using `backend/scripts/createAdmin.js` from a trusted server environment. Never expose staff creation as a public endpoint. Test authorization with a member, a moderator and an administrator before launch.
+
+## Launch acceptance checks
+
+- `/healthz` returns ready while the database is connected and unavailable otherwise. It exposes no credentials or database details. Configure an external uptime monitor for this endpoint; no external monitor has been registered here. Free preview sleep affects monitoring results.
+- Sign up through the actual website, receive a real email, verify, sign in, upload/delete a photo, edit a profile, form a mutual match, and complete email recovery. Confirm old sessions fail after recovery or logout.
+- Verify HTTPS, the production Secure/HttpOnly host-only cookie, same-origin API calls, blocked hostile origins, member/admin boundaries and per-client rate limiting.
+- Verify Cloudinary uploads/deletes with the real account, including provider errors. Local automated tests mock external email and storage calls; they do not prove delivery or account permissions.
+- Use provider logs without request bodies, query strings, cookies, tokens or email content. Add alerts for sustained error rates, database availability, mail delivery failures and storage quota. Never turn production debugging on to diagnose a credential problem.
+
+## Backups and recovery drills
+
+Prefer managed Atlas backups with an appropriate retention policy for production. The included application snapshot is a small-project fallback (64 MiB serialized payload limit), not a consistent point-in-time database backup. Pause writes during snapshotting. It does not capture provider photo assets, database users or cluster settings.
+
+Generate a random 32-byte hexadecimal `BACKUP_ENCRYPTION_KEY` and keep it in a secret manager, separate from backup files. Configure it through the environment or ignored `backend/.env`. From the backend directory:
+
+```powershell
+node scripts/backupDatabase.js backups/postdate.encrypted
+```
+
+Output is AES-256-GCM authenticated encryption and refuses to overwrite a file. Upload encrypted files off-host with retention, access restrictions and monitoring; a file on Render's ephemeral disk is not a backup. `.encrypted` files and `backups/` are ignored by Git. No backup job has been scheduled because no database/backup destination is connected.
+
+For a drill, set `POSTDATE_RESTORE_TEST_URI` to a distinct empty database whose name contains `restore_test`, then run:
+
+```powershell
+node scripts/restoreBackup.js backups/postdate.encrypted
+```
+
+The command cannot restore into a production-named or nonempty database. Verify records and indexes in the test database. Real recovery needs a separately reviewed process; the script deliberately does not overwrite production. Cloudinary assets need their own backup/retention strategy.
+
+## Automated review
+
+`.github/workflows/security-checks.yml` is ready for GitHub. The Anthropic reviewer remains a template until its repository secret and required approval environment are configured. See `SECURITY.md`. No external scan or penetration test has been performed.

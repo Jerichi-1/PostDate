@@ -4,6 +4,16 @@ const { asyncHandler } = require("../middleware/errorHandler");
 const { getMe, getAdminPing } = require("../controllers/controller");
 
 const router = express.Router();
+router.get("/stats", asyncHandler(async (req, res) => {
+  const User = require("../models/User");
+  const Match = require("../models/Match");
+  const [members, matches, active] = await Promise.all([
+    User.countDocuments({ role: "user", isActive: true, isVerified: true, emailVerifiedAt: { $ne: null } }),
+    Match.countDocuments({ status: "active" }),
+    User.countDocuments({ role: "user", isActive: true, isVerified: true, emailVerifiedAt: { $ne: null }, lastActiveAt: { $gte: new Date(Date.now() - 300000) } }),
+  ]);
+  res.json([{ label: "verified members", value: members }, { label: "active matches", value: matches }, { label: "members active recently", value: active }]);
+}));
 
 // Mounted at /api in server.js. This file was an empty placeholder before —
 // these two routes are worked examples of requireAuth / requireRole (see

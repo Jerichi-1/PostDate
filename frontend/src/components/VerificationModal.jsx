@@ -35,6 +35,7 @@ import { sendVerificationCode, verifyCode } from "../services/postdateApi";
  */
 export default function VerificationModal({
   open,
+  email,
   onVerified,
   onClose,
   codeLength = 6,
@@ -54,7 +55,7 @@ export default function VerificationModal({
     setError("");
     setCode("");
     try {
-      const res = await sendVerificationCode();
+      const res = await sendVerificationCode(email);
       setSecondsLeft(res?.expiresIn ?? 300); // 🎛️ fallback lifetime in seconds
       inputRef.current?.focus();
     } catch (err) {
@@ -65,7 +66,7 @@ export default function VerificationModal({
     } finally {
       setSending(false);
     }
-  }, []);
+  }, [email]);
 
   /* Send once each time the pop-up opens. */
   useEffect(() => {
@@ -127,7 +128,7 @@ export default function VerificationModal({
     setError("");
     try {
       /* 🔌 BACKEND: POST /api/verify/confirm — see services/postdateApi.js */
-      const res = await verifyCode(code);
+      const res = await verifyCode(code, email);
       if (res?.verified) {
         onVerified?.(res);
       } else {

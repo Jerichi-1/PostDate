@@ -1,5 +1,7 @@
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const { setSession, clearSession } = require("../utils/session");
+const { codeHash, emailCode } = require("../utils/verification");
 const User = require("../models/User");
 const Profile = require("../models/Profile");
 const { isValidEmail, isNonEmptyString } = require("../utils/validators");
@@ -11,44 +13,9 @@ const {
 } = require("../utils/tasteOptions");
 const { savePhotosToDisk, deletePhotoFile } = require("../utils/photoStorage");
 
-/**
- * authController
- * Signup, log-in, and the (temporarily fake) email-verification step. Matches
- * the routes and response shapes already documented in the frontend's
- * services/postdateApi.js — that file is the source of truth for what each
- * endpoint is expected to return; keep the two in step if either changes.
- *
- * 🔌 NOT WIRED UP FOR REAL YET:
- *   - Verification codes: nothing is actually emailed. Every account uses the
- *     same fixed TEMP_VERIFY_CODE below until an email service is picked —
- *     search this file for "TEMP" to find what to replace.
- *   - Password recovery ("forgot password?"): still fully mocked on the
- *     frontend, since it also needs a real email service. Nothing here
- *     handles it yet.
- *
- * 🔌 PHOTOS: signup now accepts photos for real. authRoutes.js puts
- * upload.array("photos", MAX_FILES) in front of this route, so a multipart
- * request lands here with files on req.files and every other field as text
- * on req.body (tags included — see parseListField below). A plain JSON
- * request (no photos) still works exactly as before: req.files is just
- * undefined, so `files` below is [].
- */
-
-const SALT_ROUNDS = 10; // 🎛️ bcrypt cost factor
-const TOKEN_TTL = "7d"; // 🎛️ how long a log-in session lasts
-const MIN_PASSWORD_LENGTH = 8; // 🎛️ keep in sync with the frontend forms
-const MIN_SIGNUP_AGE = 18; // 🎛️ keep in sync with MIN_AGE in WhoAreYouForm.jsx
-
-// 🧪 TEMP verification code — every account is "verified" by typing this
-// exact string, since nothing emails a real one yet. Keep in sync with
-// codeLength={4} on <VerificationModal> in frontend/src/pages/Signup.jsx.
-const TEMP_VERIFY_CODE = process.env.TEMP_VERIFY_CODE || "0000";
-
-function signToken(user) {
-  return jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, {
-    expiresIn: TOKEN_TTL,
-  });
-}
+const SALT_ROUNDS = 12;
+const MIN_PASSWORD_LENGTH = 12;
+const MIN_SIGNUP_AGE = 18;
 
 /**
  * "YYYY-MM-DD" — what a native <input type="date"> sends (see
@@ -95,6 +62,8 @@ function calculateAge(dateOfBirth) {
  * failed signup never leaves orphan files.
  */
 async function register(req, res) {
+  let createdUser;
+  let savedPhotos = [];
   try {
     const { firstName, middleName, lastName, email, password, birthdate, gender, bio, tags } =
       req.body ?? {};
@@ -102,7 +71,7 @@ async function register(req, res) {
     if (
       !isNonEmptyString(firstName, 50) ||
       !isNonEmptyString(lastName, 50) ||
-      !isNonEmptyString(gender) ||
+      !isNonEmptyString(gender, 50) ||
       !isNonEmptyString(password) ||
       !birthdate
     ) {
@@ -111,10 +80,15 @@ async function register(req, res) {
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: "Enter a valid email address" });
     }
-    if (password.length < MIN_PASSWORD_LENGTH) {
+    if (password.length < MIN_PASSWORD_LENGTH || Buffer.byteLength(password, "utf8") > 72) {
       return res
         .status(400)
-        .json({ message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+        .json({ message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters and at most 72 UTF-8 bytes` });
+    }
+
+    if ((middleName !== undefined && (typeof middleName !== "string" || middleName.length > 50)) ||
+        (bio !== undefined && (typeof bio !== "string" || bio.length > 1000))) {
+      return res.status(400).json({ message: "Invalid profile fields" });
     }
 
     const dateOfBirth = parseBirthdate(birthdate);
@@ -154,6 +128,9 @@ async function register(req, res) {
       return res.status(409).json({ message: "An account with that email already exists" });
     }
 
+    const files = req.files ?? [];
+    // Decode all images before creating database records.
+    savedPhotos = files.length > 0 ? await savePhotosToDisk(files) : [];
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     const user = await User.create({
       email: normalizedEmail,
@@ -163,34 +140,28 @@ async function register(req, res) {
       lastName: lastName.trim(),
     });
 
-    // req.files only exists on a multipart request (see upload.array on
-    // this route in authRoutes.js). A plain JSON signup has no photos.
-    const files = req.files ?? [];
-    const savedPhotos = files.length > 0 ? await savePhotosToDisk(files) : [];
+    createdUser = user;
 
-    try {
-      await Profile.create({
-        userId: user._id,
-        dateOfBirth,
-        gender,
-        bio,
-        interests: tagsResult.value,
-        photos: savedPhotos,
-        avatar: savedPhotos[0] ?? null,
-      });
-    } catch (profileErr) {
-      await User.deleteOne({ _id: user._id }); // keep User and Profile in step
-      await Promise.all(savedPhotos.map((p) => deletePhotoFile(p).catch(() => {})));
-      throw profileErr;
-    }
+    await Profile.create({
+      userId: user._id,
+      dateOfBirth,
+      gender,
+      bio,
+      interests: tagsResult.value,
+      photos: savedPhotos,
+      avatar: savedPhotos[0] ?? null,
+    });
 
     return res.status(201).json({ userId: user._id });
   } catch (err) {
+    if (createdUser) await User.deleteOne({ _id: createdUser._id });
+    await Promise.all(savedPhotos.map((photo) => deletePhotoFile(photo).catch(() => {})));
+    if (err.status === 400) return res.status(400).json({ message: "Invalid image upload" });
     if (err?.code === 11000) {
       // two requests raced past the findOne check above
       return res.status(409).json({ message: "An account with that email already exists" });
     }
-    console.error("[auth] register failed:", err);
+    console.error("[auth] register failed");
     return res.status(500).json({ message: "Could not create account" });
   }
 }
@@ -205,71 +176,105 @@ async function register(req, res) {
 async function login(req, res) {
   try {
     const { email, password } = req.body ?? {};
-    if (!isValidEmail(email) || !isNonEmptyString(password)) {
+    if (!isValidEmail(email) || !isNonEmptyString(password) || Buffer.byteLength(password, "utf8") > 72) {
       return res.status(400).json({ message: "Email and password are required" });
     }
 
-    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    const user = await User.findOne({ email: email.trim().toLowerCase() }).select("+passwordHash +sessionVersion");
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ message: "Wrong email or password" });
     }
     if (!user.isActive) {
       return res.status(403).json({ message: "This account has been deactivated" });
     }
-    if (!user.isVerified) {
+    if (!user.isVerified || (user.role === "user" && !user.emailVerifiedAt)) {
       return res.status(403).json({ message: "Verify your email before logging in" });
     }
 
-    const token = signToken(user);
-    return res.json({ userId: user._id, role: user.role, token });
+    setSession(res, user);
+    return res.json({ userId: user._id, role: user.role });
   } catch (err) {
-    console.error("[auth] login failed:", err);
+    console.error("[auth] login failed");
     return res.status(500).json({ message: "Could not log in" });
   }
 }
 
-/**
- * POST /api/verify/send
- * 🧪 TEMP: doesn't actually send anything — see TEMP_VERIFY_CODE above. Once
- * a real email service exists, generate a per-user code here, store it
- * (e.g. on the User doc, with an expiry) and email it.
- */
+// Resends are limited per account as well as per IP. Codes are never logged.
 async function sendVerificationCode(req, res) {
+  const { email } = req.body ?? {};
+  if (!isValidEmail(email)) return res.status(400).json({ message: "Enter a valid email address" });
+  if (!process.env.MAIL_API_KEY || !process.env.MAIL_FROM) {
+    return res.status(503).json({ message: "Email verification is not configured" });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+  const hash = codeHash(normalizedEmail, code);
+  const user = await User.findOneAndUpdate({
+    email: normalizedEmail,
+    $and: [
+      { $or: [{ isVerified: false }, { role: "user", emailVerifiedAt: null }] },
+      { $or: [{ verificationSentAt: { $exists: false } }, { verificationSentAt: { $lt: new Date(Date.now() - 60000) } }] },
+    ],
+  }, { $set: {
+    verificationHash: hash, verificationExpiresAt: new Date(Date.now() + 300000),
+    verificationAttempts: 0, verificationSentAt: new Date(),
+  } });
+  if (user) {
+    try {
+      await emailCode(normalizedEmail, code);
+    } catch {
+      await User.updateOne({ _id: user._id, verificationHash: hash }, {
+        $unset: { verificationHash: 1, verificationExpiresAt: 1, verificationSentAt: 1 },
+      });
+      return res.status(503).json({ message: "Could not send verification email" });
+    }
+  }
+  // Same reply for unknown, verified and recently requested addresses.
   return res.json({ expiresIn: 300 });
 }
 
-/**
- * POST /api/verify/confirm
- * Wrong code -> `{ verified: false }` rather than an error, since guessing
- * wrong isn't really "the server broke" (the modal handles either).
- */
 async function verifyCode(req, res) {
-  try {
-    const { email, code } = req.body ?? {};
-    if (!email) {
-      return res.status(400).json({ message: "Missing email" });
-    }
-    if (code !== TEMP_VERIFY_CODE) {
-      return res.json({ verified: false });
-    }
-
-    const user = await User.findOneAndUpdate(
-      { email: email.trim().toLowerCase() },
-      { isVerified: true },
-      { new: true }
-    );
-    if (!user) {
-      return res.status(404).json({ message: "No account for that email" });
-    }
-
-    return res.json({ verified: true, userId: user._id, role: user.role });
-  } catch (err) {
-    console.error("[auth] verifyCode failed:", err);
-    return res.status(500).json({ message: "Could not check that code" });
+  const { email, code } = req.body ?? {};
+  if (!isValidEmail(email) || typeof code !== "string" || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ message: "Enter a valid email and six-digit code" });
   }
+  const normalizedEmail = email.trim().toLowerCase();
+  // Increment atomically first, so parallel guesses cannot evade the budget.
+  const candidate = await User.findOneAndUpdate({
+    email: normalizedEmail,
+    $or: [{ isVerified: false }, { role: "user", emailVerifiedAt: null }],
+    verificationExpiresAt: { $gt: new Date() }, verificationAttempts: { $lt: 5 },
+  }, { $inc: { verificationAttempts: 1 } }, { new: true }).select("+verificationHash");
+  const hash = codeHash(normalizedEmail, code);
+  if (!candidate || !candidate.verificationHash || !crypto.timingSafeEqual(
+    Buffer.from(candidate.verificationHash, "hex"), Buffer.from(hash, "hex")
+  )) return res.json({ verified: false });
+  // Consume the exact code once, also protecting against resend/confirm races.
+  const user = await User.findOneAndUpdate({
+    _id: candidate._id, verificationHash: hash,
+    $or: [{ isVerified: false }, { role: "user", emailVerifiedAt: null }],
+    verificationExpiresAt: { $gt: new Date() },
+  }, {
+    $set: { isVerified: true, emailVerifiedAt: new Date() },
+    $unset: { verificationHash: 1, verificationExpiresAt: 1, verificationAttempts: 1, verificationSentAt: 1 },
+  }, { new: true });
+  if (!user) return res.json({ verified: false });
+  return res.json({ verified: true, userId: user._id, role: user.role });
+}
+
+async function logout(req, res) {
+  await User.updateOne({ _id: req.user.userId }, { $inc: { sessionVersion: 1 } });
+  clearSession(res);
+  return res.json({ ok: true });
+}
+
+function session(req, res) {
+  return res.json({ userId: req.user.userId, role: req.user.role });
 }
 
 module.exports = {
+  logout,
+  session,
   register,
   login,
   sendVerificationCode,

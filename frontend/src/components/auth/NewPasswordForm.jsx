@@ -17,7 +17,7 @@ import useAuthAction from "./useAuthAction";
  *   <NewPasswordForm onSubmit={...} />
  */
 
-const MIN_PASSWORD_LENGTH = 8; // 🎛️ keep in sync with WhoAreYouForm.jsx
+const MIN_PASSWORD_LENGTH = 12; // 🎛️ keep in sync with WhoAreYouForm.jsx
 
 export default function NewPasswordForm({ onSubmit }) {
   const [password, setPassword] = useState("");

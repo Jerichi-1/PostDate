@@ -7,13 +7,34 @@
  *
  * Run with: npm test
  */
-const request = require("supertest");
+const supertest = require("supertest");
+const request = (app) => {
+  const agent = supertest(app);
+  for (const method of ["get", "post", "put", "patch", "delete"]) {
+    const original = agent[method].bind(agent);
+    agent[method] = (...args) => original(...args).set("X-Postdate-Request", "1");
+  }
+  return agent;
+};
+jest.setTimeout(120000);
 const mongoose = require("mongoose");
 const { MongoMemoryServer } = require("mongodb-memory-server");
 const jwt = require("jsonwebtoken");
+const { codeHash } = require("../utils/verification");
+jest.mock("../utils/verification", () => ({
+  ...jest.requireActual("../utils/verification"), emailCode: jest.fn().mockResolvedValue(undefined),
+}));
+process.env.MAIL_API_KEY = "test-mail-key";
+process.env.MAIL_FROM = "test@example.com";
 
-process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-do-not-use-in-prod";
-process.env.TEMP_VERIFY_CODE = process.env.TEMP_VERIFY_CODE || "0000";
+async function verifyTestAccount(email) {
+  await request(app).post("/api/verify/send").send({ email }).expect(200);
+  const delivery = require("../utils/verification").emailCode.mock.calls.findLast((args) => args[0] === email);
+  await request(app).post("/api/verify/confirm").send({ email, code: delivery[1] }).expect(200);
+}
+
+process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-do-not-use-in-production-12345";
+
 
 let mongod;
 let app;
@@ -34,41 +55,25 @@ beforeAll(async () => {
   process.env.MONGO_URI = mongod.getUri();
   await mongoose.connect(process.env.MONGO_URI);
 
-  // server.js calls connectDB() + app.listen() as a side effect of being
-  // required, which we don't want in tests — build an equivalent app here
-  // instead, using the same route/middleware files.
-  const express = require("express");
-  const helmet = require("helmet");
-  const cors = require("cors");
-  const authRoutes = require("../routes/authRoutes");
-  const apiRoutes = require("../routes/routes");
-  const { notFound, errorHandler } = require("../middleware/errorHandler");
-
   User = require("../models/User");
-
-  app = express();
-  app.use(helmet());
-  app.use(cors());
-  app.use(express.json());
-  app.use("/api", authRoutes);
-  app.use("/api", apiRoutes);
-  app.use(notFound);
-  app.use(errorHandler);
+  app = require("../server").createApp();
 });
 
 afterAll(async () => {
   await mongoose.disconnect();
-  await mongod.stop();
+  if (mongod) await mongod.stop();
 });
 
 afterEach(async () => {
   await User.deleteMany({});
+  await require("../models/Profile").deleteMany({});
+  jest.clearAllMocks();
 });
 
 describe("POST /api/signup", () => {
   test("hashes the password — never stores it in plain text", async () => {
     await request(app).post("/api/signup").send(VALID_SIGNUP).expect(201);
-    const stored = await User.findOne({ email: VALID_SIGNUP.email });
+    const stored = await User.findOne({ email: VALID_SIGNUP.email }).select("+passwordHash");
     expect(stored.passwordHash).toBeDefined();
     expect(stored.passwordHash).not.toBe(VALID_SIGNUP.password);
     expect(stored.passwordHash.startsWith("$2")).toBe(true); // bcrypt hash prefix
@@ -107,7 +112,7 @@ describe("POST /api/signup", () => {
 describe("POST /api/auth/login", () => {
   async function signupAndVerify(email = VALID_SIGNUP.email) {
     await request(app).post("/api/signup").send({ ...VALID_SIGNUP, email });
-    await request(app).post("/api/verify/confirm").send({ email, code: "0000" });
+    await verifyTestAccount(email);
   }
 
   test("blocks login before email verification with 403", async () => {
@@ -118,15 +123,18 @@ describe("POST /api/auth/login", () => {
     expect(res.status).toBe(403);
   });
 
-  test("logs in and returns a JWT after verification", async () => {
+  test("logs in using an HttpOnly cookie after verification", async () => {
     await signupAndVerify();
     const res = await request(app)
       .post("/api/auth/login")
       .send({ email: VALID_SIGNUP.email, password: VALID_SIGNUP.password });
     expect(res.status).toBe(200);
-    expect(res.body.token).toBeDefined();
-    const decoded = jwt.verify(res.body.token, process.env.JWT_SECRET);
-    expect(decoded.role).toBe("user");
+    expect(res.body.token).toBeUndefined();
+    const cookie = res.headers["set-cookie"][0];
+    expect(cookie).toMatch(/HttpOnly/);
+    expect(cookie).toMatch(/SameSite=Strict/);
+    const decoded = jwt.verify(cookie.split(";")[0].split("=")[1], process.env.JWT_SECRET);
+    expect(decoded.userId).toBeDefined();
   });
 
   test("gives the same error for a wrong password as a nonexistent email", async () => {
@@ -147,14 +155,14 @@ describe("Protected routes (requireAuth / requireRole)", () => {
   async function getToken(role = "user") {
     const email = `${role}.${Date.now()}.${Math.random().toString(36).slice(2)}@example.com`;
     await request(app).post("/api/signup").send({ ...VALID_SIGNUP, email });
-    await request(app).post("/api/verify/confirm").send({ email, code: "0000" });
+    await verifyTestAccount(email);
     if (role !== "user") {
       await User.updateOne({ email }, { role });
     }
     const login = await request(app)
       .post("/api/auth/login")
       .send({ email, password: VALID_SIGNUP.password });
-    return login.body.token;
+    return login.headers["set-cookie"][0].split(";")[0];
   }
 
   test("rejects /api/profile/me with no token", async () => {
@@ -173,7 +181,7 @@ describe("Protected routes (requireAuth / requireRole)", () => {
     const token = await getToken("user");
     const res = await request(app)
       .get("/api/profile/me")
-      .set("Authorization", `Bearer ${token}`);
+      .set("Cookie", token);
     expect(res.status).toBe(200);
   });
 
@@ -181,7 +189,7 @@ describe("Protected routes (requireAuth / requireRole)", () => {
     const token = await getToken("user");
     const res = await request(app)
       .get("/api/admin/ping")
-      .set("Authorization", `Bearer ${token}`);
+      .set("Cookie", token);
     expect(res.status).toBe(403);
   });
 
@@ -189,7 +197,7 @@ describe("Protected routes (requireAuth / requireRole)", () => {
     const token = await getToken("admin");
     const res = await request(app)
       .get("/api/admin/ping")
-      .set("Authorization", `Bearer ${token}`);
+      .set("Cookie", token);
     expect(res.status).toBe(200);
   });
 });
@@ -210,4 +218,132 @@ describe("Error handling", () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.body.message).not.toMatch(/at Object|node_modules|\.js:\d+/);
   });
+});
+
+
+describe("Verification abuse resistance", () => {
+  const email = VALID_SIGNUP.email;
+  beforeEach(async () => { await request(app).post("/api/signup").send(VALID_SIGNUP).expect(201); });
+  test("the old universal code cannot verify an account", async () => {
+    await request(app).post("/api/verify/confirm").send({ email, code: "0000" }).expect(400);
+    expect((await User.findOne({ email })).isVerified).toBe(false);
+  });
+  test("rejects codes that were never issued", async () => {
+    const res = await request(app).post("/api/verify/confirm").send({ email, code: "123456" });
+    expect(res.body.verified).toBe(false);
+  });
+  test("an issued code is hashed, expires, and can only be used once", async () => {
+    await request(app).post("/api/verify/send").send({ email }).expect(200);
+    const code = require("../utils/verification").emailCode.mock.calls[0][1];
+    const user = await User.findOne({ email }).select("+verificationHash +verificationExpiresAt");
+    expect(user.verificationHash).toBe(codeHash(email, code));
+    expect(user.verificationHash).not.toBe(code);
+    expect(user.verificationExpiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect((await request(app).post("/api/verify/confirm").send({ email, code })).body.verified).toBe(true);
+    expect((await request(app).post("/api/verify/confirm").send({ email, code })).body.verified).toBe(false);
+  });
+  test("expired codes fail", async () => {
+    await User.updateOne({ email }, { verificationHash: codeHash(email, "123456"), verificationExpiresAt: new Date(Date.now() - 1000) });
+    expect((await request(app).post("/api/verify/confirm").send({ email, code: "123456" })).body.verified).toBe(false);
+  });
+  test("five wrong guesses exhaust the code, including concurrent guesses", async () => {
+    await User.updateOne({ email }, { verificationHash: codeHash(email, "123456"), verificationExpiresAt: new Date(Date.now() + 60000) });
+    await Promise.all(Array.from({ length: 8 }, () => request(app).post("/api/verify/confirm").send({ email, code: "999999" })));
+    expect((await request(app).post("/api/verify/confirm").send({ email, code: "123456" })).body.verified).toBe(false);
+    expect((await User.findOne({ email }).select("+verificationAttempts")).verificationAttempts).toBe(5);
+  });
+  test("repeated send requests do not spam an account", async () => {
+    await request(app).post("/api/verify/send").send({ email }).expect(200);
+    await request(app).post("/api/verify/send").send({ email }).expect(200);
+    expect(require("../utils/verification").emailCode).toHaveBeenCalledTimes(1);
+  });
+  test("resending invalidates the preceding code", async () => {
+    await User.updateOne({ email }, { verificationHash: codeHash(email, "old-code"), verificationExpiresAt: new Date(Date.now() + 60000) });
+    await request(app).post("/api/verify/send").send({ email }).expect(200);
+    expect((await User.findOne({ email }).select("+verificationHash")).verificationHash).not.toBe(codeHash(email, "old-code"));
+  });
+});
+
+describe("Session security", () => {
+  async function cookieLogin() {
+    await request(app).post("/api/signup").send(VALID_SIGNUP).expect(201);
+    await verifyTestAccount(VALID_SIGNUP.email);
+    const res = await request(app).post("/api/auth/login").send({ email: VALID_SIGNUP.email, password: VALID_SIGNUP.password }).expect(200);
+    return res.headers["set-cookie"][0].split(";")[0];
+  }
+  test("logout revokes captured credentials on the server", async () => {
+    const cookie = await cookieLogin();
+    await request(app).get("/api/auth/session").set("Cookie", cookie).expect(200);
+    await request(app).post("/api/auth/logout").set("Cookie", cookie).expect(200);
+    await request(app).get("/api/auth/session").set("Cookie", cookie).expect(401);
+  });
+  test("unverified accounts cannot use an otherwise valid session", async () => {
+    const cookie = await cookieLogin();
+    await User.updateOne({ email: VALID_SIGNUP.email }, { isVerified: false });
+    await request(app).get("/api/auth/session").set("Cookie", cookie).expect(401);
+  });
+  test("private account responses do not include auth secrets", async () => {
+    const cookie = await cookieLogin();
+    const res = await request(app).get("/api/profile/me").set("Cookie", cookie).expect(200);
+    expect(JSON.stringify(res.body)).not.toMatch(/passwordHash|verificationHash|sessionVersion/);
+  });
+  test("signup cannot assign admin rights or verification", async () => {
+    await request(app).post("/api/signup").send({ ...VALID_SIGNUP, role: "admin", isVerified: true }).expect(201);
+    const user = await User.findOne({ email: VALID_SIGNUP.email });
+    expect(user.role).toBe("user");
+    expect(user.isVerified).toBe(false);
+  });
+  test("rejects passwords that bcrypt would truncate", async () => {
+    await request(app).post("/api/signup").send({ ...VALID_SIGNUP, password: "x".repeat(73) }).expect(400);
+  });
+  test("own-profile mutations ignore a supplied foreign user ID", async () => {
+    const cookie = await cookieLogin();
+    const Profile = require("../models/Profile");
+    const foreign = await User.create({ email: "foreign@example.com", firstName: "Other", lastName: "Member", passwordHash: "unused" });
+    await Profile.create({ userId: foreign._id, dateOfBirth: new Date("1990-01-01"), gender: "female", lookingFor: { intents: ["New friends"] } });
+    await request(app).put("/api/profile/looking-for").set("Cookie", cookie)
+      .send({ lookingFor: [], userId: foreign._id }).expect(200);
+    expect((await Profile.findOne({ userId: foreign._id })).lookingFor.intents).toEqual(["New friends"]);
+  });
+});
+
+
+test("legacy universal-code verification does not grant member access", async () => {
+  await request(app).post("/api/signup").send(VALID_SIGNUP).expect(201);
+  await User.updateOne({ email: VALID_SIGNUP.email }, { isVerified: true });
+  await request(app).post("/api/auth/login").send({ email: VALID_SIGNUP.email, password: VALID_SIGNUP.password }).expect(403);
+  await verifyTestAccount(VALID_SIGNUP.email);
+  await request(app).post("/api/auth/login").send({ email: VALID_SIGNUP.email, password: VALID_SIGNUP.password }).expect(200);
+});
+
+
+test.each([
+  { algorithm: "HS256", expiresIn: "1h", issuer: "foreign", audience: "postdate-web" },
+  { algorithm: "HS256", expiresIn: "1h", issuer: "postdate", audience: "foreign" },
+  { algorithm: "HS256", expiresIn: -1, issuer: "postdate", audience: "postdate-web" },
+  { algorithm: "HS384", expiresIn: "1h", issuer: "postdate", audience: "postdate-web" },
+])("rejects incompatible or expired session claims: %j", async (options) => {
+  const token = jwt.sign({ userId: new mongoose.Types.ObjectId().toString(), version: 0 }, process.env.JWT_SECRET, options);
+  await request(app).get("/api/auth/session").set("Cookie", `postdate=${token}`).expect(401);
+});
+
+test("concurrent uploads cannot exceed the account photo quota", async () => {
+  await request(app).post("/api/signup").send(VALID_SIGNUP).expect(201);
+  await verifyTestAccount(VALID_SIGNUP.email);
+  const login = await request(app).post("/api/auth/login").send({ email: VALID_SIGNUP.email, password: VALID_SIGNUP.password });
+  const cookie = login.headers["set-cookie"][0].split(";")[0];
+  const user = await User.findOne({ email: VALID_SIGNUP.email });
+  const Profile = require("../models/Profile");
+  const fixtures = Array.from({ length: 29 }, (_, i) => `/uploads/fixture-${i}.webp`);
+  await Profile.updateOne({ userId: user._id }, { photos: fixtures, avatar: fixtures[0] });
+  const png = await require("sharp")({ create: { width: 2, height: 2, channels: 3, background: "red" } }).png().toBuffer();
+  try {
+    const responses = await Promise.all([0, 1].map(() => request(app).post("/api/profile/photos")
+      .set("Cookie", cookie).attach("photos", png, { filename: "photo.png", contentType: "image/png" })));
+    expect(responses.map((res) => res.status).sort()).toEqual([201, 409]);
+    expect((await Profile.findOne({ userId: user._id })).photos).toHaveLength(30);
+  } finally {
+    const profile = await Profile.findOne({ userId: user._id });
+    await Promise.all(profile.photos.filter((photo) => !fixtures.includes(photo)).map(require("../utils/photoStorage").deletePhotoFile));
+  }
 });

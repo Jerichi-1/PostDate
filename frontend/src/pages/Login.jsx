@@ -20,13 +20,7 @@
  * and makes the four backend calls. The forms in components/auth/ only check
  * their boxes and report back, the same way the sign-up steps do.
  *
- * 🔌 BACKEND: every call below lives in services/postdateApi.js
- *      loginUser            POST /api/auth/login             — real
- *      requestRecoveryCode  POST /api/auth/recovery/request   — still mock
- *      verifyRecoveryCode   POST /api/auth/recovery/verify    — still mock
- *      resetPassword        POST /api/auth/recovery/reset     — still mock
- * Recovery stays mocked until an email service exists to send the codes —
- * same reason as VerificationModal's code (see pages/Signup.jsx).
+ * Login and recovery use the authenticated server API and real email delivery.
  *
  * 🎛️ Like the sign-up page this is a fixed layout sized in Figma pixels
  *    (`calc(<Figma px> * var(--u))`); --u lives in src/theme.css.
@@ -34,6 +28,8 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { setSession } from "../auth";
+import VerificationModal from "../components/VerificationModal";
 import SiteNav from "../components/SiteNav";
 import SiteFooter from "../components/SiteFooter";
 import AuthPanel from "../components/auth/AuthPanel";
@@ -67,6 +63,7 @@ const expiryFrom = (seconds) =>
 function Login() {
   const navigate = useNavigate();
 
+  const [verifyEmail, setVerifyEmail] = useState("");
   const [view, setView] = useState("login"); // "login" | "recovery" | "password"
   const [email, setEmail] = useState("");
   const [expiresAt, setExpiresAt] = useState(0); // when the emailed code stops working
@@ -107,14 +104,17 @@ function Login() {
               defaultEmail={email}
               notice={notice}
               onSubmit={async ({ email, password }) => {
-                /* 🔌 BACKEND: POST /api/auth/login — see services/postdateApi.js.
-                   The token gets attached to future requests by the
-                   interceptor in src/api.js. Nothing reads it back to restore
-                   a session after a refresh yet — the next piece to build,
-                   not this one. */
-                const session = await loginUser({ email, password });
-                if (session?.token) localStorage.setItem("token", session.token);
-                navigate(HOME_BY_ROLE[session?.role] ?? "/discover");
+                try {
+                  const session = await loginUser({ email, password });
+                  setSession(session);
+                  navigate(HOME_BY_ROLE[session?.role] ?? "/discover");
+                } catch (err) {
+                  if (err?.response?.status === 403 && err.response.data.message === "Verify your email before logging in") {
+                    setVerifyEmail(email);
+                    return;
+                  }
+                  throw err;
+                }
               }}
               onForgot={async (typedEmail) => {
                 /* 🔌 BACKEND: POST /api/auth/recovery/request */
@@ -150,6 +150,7 @@ function Login() {
                 /* 🔌 BACKEND: POST /api/auth/recovery/reset */
                 await resetPassword({ resetToken, newPassword });
                 setResetToken("");
+                setSession(null);
                 setNotice("Password updated. Log in");
                 setView("login");
               }}
@@ -158,6 +159,9 @@ function Login() {
         </AuthPanel>
       </main>
 
+      <VerificationModal open={Boolean(verifyEmail)} email={verifyEmail}
+        onClose={() => setVerifyEmail("")}
+        onVerified={() => { setEmail(verifyEmail); setVerifyEmail(""); setNotice("Email verified. Log in to continue."); }} />
       <SiteFooter />
     </div>
   );

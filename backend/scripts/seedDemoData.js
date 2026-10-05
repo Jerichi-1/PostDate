@@ -466,7 +466,7 @@ function NOW_YEAR() {
 
 main()
   .catch((err) => {
-    console.error(`✘ ${err.message}`);
+    console.error("Demo seed failed. Check configuration and input.");
     process.exitCode = 1;
   })
   .finally(() => mongoose.disconnect());

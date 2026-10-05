@@ -75,7 +75,7 @@ async function audit(req, { action, targetType, targetId, summary, details }) {
       details,
     });
   } catch (err) {
-    console.error("[audit] could not write entry:", err);
+    console.error("[audit] write failed");
   }
 }
 
@@ -276,6 +276,7 @@ async function suspendUser(req, res) {
   const updated = await User.findOneAndUpdate(
     { _id: target._id, isActive: true },
     {
+      $inc: { sessionVersion: 1 },
       $set: {
         isActive: false,
         suspendedAt: new Date(),

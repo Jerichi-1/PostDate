@@ -8,7 +8,9 @@
  *   <AppNav />
  *   <AppNav links={[{ label: "Home", to: "/discover" }]} />
  */
-import { NavLink } from "react-router-dom";
+import { useState } from "react";
+import { clearToken, logout } from "../auth";
+import { NavLink, useNavigate } from "react-router-dom";
 import Wordmark from "./Wordmark";
 import MatchHistory from "./MatchHistory";
 
@@ -20,6 +22,21 @@ const DEFAULT_LINKS = [
 ];
 
 export default function AppNav({ links = DEFAULT_LINKS }) {
+  const navigate = useNavigate();
+  const [loggingOut, setLoggingOut] = useState(false);
+  async function logOut() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        clearToken();
+        navigate("/login", { replace: true });
+      } else { window.alert("Could not log out. Please try again."); }
+    } finally { setLoggingOut(false); }
+  }
   return (
     <header className="appnav">
       <style>{`
@@ -56,7 +73,8 @@ export default function AppNav({ links = DEFAULT_LINKS }) {
           gap: clamp(12px, 2.2vw, 44px);   /* 🎛️ space between links */
         }
 
-        .appnav-pill a {
+        .appnav-pill a, .appnav-pill button {
+          background: none; border: 0; padding: 0; cursor: pointer;
           font-family: var(--pd-mono);
           font-weight: 400;
           font-size: clamp(11px, 1vw, 20px);   /* 🎛️ link text size */
@@ -88,6 +106,7 @@ export default function AppNav({ links = DEFAULT_LINKS }) {
               {label}
             </NavLink>
           ))}
+          <button type="button" disabled={loggingOut} onClick={logOut}>{loggingOut ? "Logging out…" : "Log out"}</button>
         </nav>
       </div>
     </header>

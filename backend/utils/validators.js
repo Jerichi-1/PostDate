@@ -5,7 +5,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * that's what the (still-mocked) verification step is for.
  */
 function isValidEmail(email) {
-  return typeof email === "string" && EMAIL_PATTERN.test(email.trim());
+  return typeof email === "string" && email.length <= 254 && EMAIL_PATTERN.test(email.trim());
 }
 
 /**

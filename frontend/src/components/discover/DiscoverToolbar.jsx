@@ -24,7 +24,7 @@ const GENDER_OPTIONS = ["Any", "Woman", "Man", "Non-binary"];
 export default function DiscoverToolbar({
   query = "",
   onQuery,
-  filters = { gender: "Any", maxDistance: 50, minAge: 18, maxAge: 60 },
+  filters = { gender: "Any", minAge: 18, maxAge: 60 },
   onFilters,
 }) {
   const [open, setOpen] = useState(false);
@@ -173,20 +173,6 @@ export default function DiscoverToolbar({
                 <option key={g} value={g}>{g}</option>
               ))}
             </select>
-          </div>
-
-          <div className="dtoolbar-field">
-            <label htmlFor="f-distance">
-              Distance <span className="dtoolbar-range-value">≤ {filters.maxDistance} mi</span>
-            </label>
-            <input
-              id="f-distance"
-              type="range"
-              min="1"
-              max="100"
-              value={filters.maxDistance}
-              onChange={(e) => update({ maxDistance: Number(e.target.value) })}
-            />
           </div>
 
           <div className="dtoolbar-field">

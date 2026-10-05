@@ -3,7 +3,8 @@ node_modules/
 
 # Environment variables (contains secrets - never commit)
 .env
-.env.local
+.env.*
+!.env.example
 
 # Build output
 frontend/dist/
@@ -21,3 +22,12 @@ npm-debug.log*
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Archives can contain obsolete code or secrets
+*.zip
+coverage/
+
+.npm-cache/
+backend/.cache/
+*.encrypted
+backups/

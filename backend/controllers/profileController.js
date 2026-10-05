@@ -45,7 +45,7 @@ async function saveTags(req, res) {
   const profile = await Profile.findOneAndUpdate(
     { userId: req.user.userId },
     { interests: result.value },
-    { new: true }
+    { new: true, runValidators: true }
   );
   if (!profile) return res.status(404).json({ message: "Profile not found" });
 
@@ -67,7 +67,7 @@ async function saveLookingFor(req, res) {
   const profile = await Profile.findOneAndUpdate(
     { userId: req.user.userId },
     { "lookingFor.intents": result.value },
-    { new: true }
+    { new: true, runValidators: true }
   );
   if (!profile) return res.status(404).json({ message: "Profile not found" });
 
@@ -97,11 +97,24 @@ async function uploadPhotos(req, res) {
   }
 
   const saved = await savePhotosToDisk(files);
-  profile.photos.push(...saved);
-  if (!profile.avatar) profile.avatar = saved[0];
-  await profile.save();
-
-  res.status(201).json({ photos: profile.photos, avatar: profile.avatar });
+  try {
+    // Reserve capacity atomically, so concurrent uploads cannot exceed quota.
+    const updated = await Profile.findOneAndUpdate({
+      userId: req.user.userId,
+      $expr: { $lte: [{ $add: [{ $size: "$photos" }, saved.length] }, MAX_PHOTOS_PER_PROFILE] },
+    }, [{ $set: {
+      photos: { $concatArrays: ["$photos", saved] },
+      avatar: { $ifNull: ["$avatar", saved[0]] },
+    } }], { new: true });
+    if (!updated) {
+      await Promise.all(saved.map((photo) => deletePhotoFile(photo).catch(() => {})));
+      return res.status(409).json({ message: "Photo capacity changed. Refresh and try again." });
+    }
+    return res.status(201).json({ photos: updated.photos, avatar: updated.avatar });
+  } catch (err) {
+    await Promise.all(saved.map((photo) => deletePhotoFile(photo).catch(() => {})));
+    throw err;
+  }
 }
 
 /**

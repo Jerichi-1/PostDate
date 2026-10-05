@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * ProfileModal
@@ -19,6 +19,15 @@ import { useEffect } from "react";
  *   )}
  */
 export default function ProfileModal({ profile, onClose, onLike, onPass }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function act(callback) {
+    if (busy) return;
+    setBusy(true); setError("");
+    try { await callback?.(profile); }
+    catch (err) { setError(err?.response?.data?.message || "Could not save your choice. Please try again."); }
+    finally { setBusy(false); }
+  }
   // Esc closes it, and background scroll is locked while it's open.
   useEffect(() => {
     function onKey(e) {
@@ -185,7 +194,8 @@ export default function ProfileModal({ profile, onClose, onLike, onPass }) {
             <button
               type="button"
               className="pmodal-btn pmodal-btn-pass"
-              onClick={() => onPass?.(profile)}
+              disabled={busy}
+              onClick={() => act(onPass)}
               aria-label={`Pass on ${name}`}
             >
               ✕
@@ -193,7 +203,8 @@ export default function ProfileModal({ profile, onClose, onLike, onPass }) {
             <button
               type="button"
               className="pmodal-btn pmodal-btn-like"
-              onClick={() => onLike?.(profile)}
+              disabled={busy}
+              onClick={() => act(onLike)}
               aria-label={`Like ${name}`}
             >
               ♡
@@ -203,7 +214,8 @@ export default function ProfileModal({ profile, onClose, onLike, onPass }) {
 
         <div className="pmodal-body">
           <h2 className="pmodal-name">{name}, {age}</h2>
-          <p className="pmodal-sub">{distanceMi} mi away · {gender}</p>
+          <p className="pmodal-sub">{Number.isFinite(distanceMi) ? `${distanceMi} mi away · ` : ""}{gender}</p>
+          {error && <p role="alert">{error}</p>}
           {bio && <p className="pmodal-bio">{bio}</p>}
         </div>
       </div>

@@ -1,5 +1,7 @@
 const fs = require("fs/promises");
 const path = require("path");
+const sharp = require("sharp");
+const { isCloudStorage, uploadCloudPhoto, deleteCloudPhoto } = require("./cloudPhotos");
 const { randomFilename } = require("../middleware/upload");
 
 // backend/uploads — served statically at /uploads (see server.js). Kept out
@@ -11,6 +13,7 @@ const { randomFilename } = require("../middleware/upload");
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 
 async function ensureUploadDir() {
+  if (isCloudStorage()) return;
   await fs.mkdir(UPLOAD_DIR, { recursive: true });
 }
 
@@ -21,14 +24,38 @@ async function ensureUploadDir() {
  * fully valid — a half-written signup shouldn't leave files behind.
  */
 async function savePhotosToDisk(files = []) {
+  // Multipart MIME labels are untrusted. Decode then re-encode every image,
+  // stripping metadata and any appended payload before it reaches storage.
+  let images;
+  try {
+    images = [];
+    for (const file of files) {
+      const image = sharp(file.buffer, { limitInputPixels: 16000000, failOn: "warning", animated: false });
+      const metadata = await image.metadata();
+      const allowed = { "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
+      if (allowed[file.mimetype] !== metadata.format || (metadata.pages || 1) > 1) throw new Error("Invalid image");
+      images.push(await image.rotate().resize({ width: 2048, height: 2048, fit: "inside", withoutEnlargement: true }).webp({ quality: 85 }).toBuffer());
+    }
+  } catch {
+    const error = new Error("UNSUPPORTED_FILE_TYPE");
+    error.status = 400;
+    throw error;
+  }
   await ensureUploadDir();
   const saved = [];
-  for (const file of files) {
-    const filename = randomFilename(file.mimetype);
-    await fs.writeFile(path.join(UPLOAD_DIR, filename), file.buffer);
-    saved.push(`/uploads/${filename}`);
+  try {
+    for (const buffer of images) {
+      const filename = randomFilename("image/webp");
+      const publicPath = `/uploads/${filename}`;
+      saved.push(publicPath);
+      if (isCloudStorage()) await uploadCloudPhoto(filename, buffer);
+      else await fs.writeFile(path.join(UPLOAD_DIR, filename), buffer, { flag: "wx" });
+    }
+    return saved;
+  } catch (err) {
+    await Promise.all(saved.map((photo) => deletePhotoFile(photo).catch(() => {})));
+    throw err;
   }
-  return saved;
 }
 
 /**
@@ -41,6 +68,7 @@ async function savePhotosToDisk(files = []) {
  */
 async function deletePhotoFile(publicPath) {
   const filename = path.basename(publicPath);
+  if (isCloudStorage()) return deleteCloudPhoto(filename);
   try {
     await fs.unlink(path.join(UPLOAD_DIR, filename));
   } catch (err) {

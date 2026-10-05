@@ -17,8 +17,8 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB per photo
 const MAX_FILES = 10; // per request — see MAX_PHOTOS_PER_PROFILE in profileController for the account-wide cap
 
 // Only these are accepted. Never trust the client's filename or the
-// extension on it — the mimetype (sniffed by multer from the upload stream,
-// not the filename) is what decides both acceptance and the stored extension.
+// extension on it — the client MIME label is only an initial filter. photoStorage.js must decode
+// and re-encode the bytes before storage.
 const EXT_BY_MIME = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -37,7 +37,7 @@ function fileFilter(req, file, cb) {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_FILE_BYTES, files: MAX_FILES },
+  limits: { fileSize: MAX_FILE_BYTES, files: MAX_FILES, fields: 20, fieldSize: 16384, parts: 30 },
   fileFilter,
 });
 

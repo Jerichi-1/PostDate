@@ -16,6 +16,8 @@ const matchSchema = new mongoose.Schema(
       required: true
     },
 
+    pairKey: { type: String },
+
     status: {
       type: String,
       enum: ["active", "unmatched", "blocked"],
@@ -30,5 +32,7 @@ const matchSchema = new mongoose.Schema(
 // Find matches for either user
 matchSchema.index({ user1: 1, status: 1 });
 matchSchema.index({ user2: 1, status: 1 });
+
+matchSchema.index({ pairKey: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model("Match", matchSchema);

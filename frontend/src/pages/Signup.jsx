@@ -35,20 +35,8 @@
  * up through onContinue / onConfirm. Nothing is sent to the server until the
  * last step, so a user can go back and forth without half-saving a profile.
  *
- * 🔌 VERIFICATION: submitSignup() creates the account for real (Mongo, via
- * backend/controllers/authController.js), then VerificationModal takes over
- * — see its own file for the two calls it makes (sendVerificationCode /
- * verifyCode). It is mandatory here (no onClose is passed), which is what
- * makes the temp code safe to leave wide open: nobody can get into /profile
- * without typing it, even though right now it's always "0000" (no email
- * service is wired up yet — see TEMP_VERIFY_CODE in authController.js).
- * Log-in agrees with this: an account that hasn't verified gets turned away
- * with "Verify your email before logging in" (LoginForm.jsx) rather than
- * being let in.
- * 🧪 When real codes are live: bump codeLength below to match, or delete the
- * prop to use the component's own default of 6. If you also make the modal
- * closable (pass onClose), you'll want a way to re-open it from log-in's
- * "not verified" message, which doesn't exist yet.
+ * Verification sends a unique expiring email code. After confirmation,
+ * users log in to establish the server-managed cookie session.
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -191,13 +179,10 @@ function Signup() {
 
       <SiteFooter />
 
-      {/* 🧪 codeLength=4 matches the temp code ("0000") — see the
-          🔌 VERIFICATION note above the imports for what to change once the
-          backend sends real codes. */}
       <VerificationModal
         open={showVerify}
-        codeLength={4}
-        onVerified={() => navigate("/profile")}
+        codeLength={6}
+        onVerified={() => navigate("/login")}
       />
     </div>
   );

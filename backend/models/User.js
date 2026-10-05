@@ -14,8 +14,22 @@ const userSchema = new mongoose.Schema(
     // Store the HASHED password here, never the plain-text password
     passwordHash: {
       type: String,
-      required: true
+      required: true,
+      select: false
     },
+
+    sessionVersion: { type: Number, default: 0, select: false },
+    verificationHash: { type: String, select: false },
+    verificationExpiresAt: { type: Date, select: false },
+    verificationAttempts: { type: Number, default: 0, select: false },
+    verificationSentAt: { type: Date, select: false },
+
+    recoveryHash: { type: String, select: false },
+    recoveryExpiresAt: { type: Date, select: false },
+    recoveryAttempts: { type: Number, default: 0, select: false },
+    recoverySentAt: { type: Date, select: false },
+    resetTokenHash: { type: String, select: false },
+    resetExpiresAt: { type: Date, select: false },
 
     // User's actual name
     firstName: {
@@ -50,6 +64,10 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+
+    // Only real code confirmation stamps this date. Legacy fake verification
+    // cannot grant member access after the security upgrade.
+    emailVerifiedAt: { type: Date, default: null },
 
     // Allows you to disable an account without deleting it.
     // Staff suspend a member by setting this to false (see

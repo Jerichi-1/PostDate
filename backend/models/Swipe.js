@@ -34,4 +34,6 @@ swipeSchema.index({ fromUserId: 1, createdAt: -1 });
 // Helps find whether someone has swiped on a user
 swipeSchema.index({ toUserId: 1 });
 
+swipeSchema.index({ fromUserId: 1, toUserId: 1 }, { unique: true });
+
 module.exports = mongoose.model("Swipe", swipeSchema);

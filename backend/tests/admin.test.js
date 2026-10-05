@@ -14,13 +14,22 @@
  * Uses mongodb-memory-server like auth.test.js — a real throwaway Mongo, no
  * live database. Run with: npm test
  */
-const request = require("supertest");
+const supertest = require("supertest");
+const request = (app) => {
+  const agent = supertest(app);
+  for (const method of ["get", "post", "put", "patch", "delete"]) {
+    const original = agent[method].bind(agent);
+    agent[method] = (...args) => original(...args).set("X-Postdate-Request", "1");
+  }
+  return agent;
+};
+jest.setTimeout(120000);
 const mongoose = require("mongoose");
 const { MongoMemoryServer } = require("mongodb-memory-server");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
-process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-do-not-use-in-prod";
+process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-do-not-use-in-production-12345";
 
 let mongod;
 let app;
@@ -38,41 +47,19 @@ beforeAll(async () => {
   process.env.MONGO_URI = mongod.getUri();
   await mongoose.connect(process.env.MONGO_URI);
 
-  const express = require("express");
-  const helmet = require("helmet");
-  const cors = require("cors");
-  const authRoutes = require("../routes/authRoutes");
-  const adminRoutes = require("../routes/adminRoutes");
-  const safetyRoutes = require("../routes/safetyRoutes");
-  const apiRoutes = require("../routes/routes");
-  const { notFound, errorHandler } = require("../middleware/errorHandler");
-
   User = require("../models/User");
   Report = require("../models/Report");
   Rating = require("../models/Rating");
   Appeal = require("../models/Appeal");
   AuditLog = require("../models/AuditLog");
   Message = require("../models/Message");
-
-  // Make sure the partial unique index on Appeal exists before any test runs.
   await Appeal.init();
-
-  // Same stack as server.js, minus connectDB() / app.listen().
-  app = express();
-  app.use(helmet());
-  app.use(cors());
-  app.use(express.json());
-  app.use("/api", authRoutes);
-  app.use("/api", adminRoutes);
-  app.use("/api", safetyRoutes);
-  app.use("/api", apiRoutes);
-  app.use(notFound);
-  app.use(errorHandler);
+  app = require("../server").createApp();
 });
 
 afterAll(async () => {
   await mongoose.disconnect();
-  await mongod.stop();
+  if (mongod) await mongod.stop();
 });
 
 afterEach(async () => {
@@ -98,13 +85,14 @@ async function makeUser({ role = "user", firstName = "Test", lastName, email, ve
     lastName: lastName || `Person${counter}`,
     role,
     isVerified: verified,
+    emailVerifiedAt: verified ? new Date() : null,
   });
 }
 
 const tokenFor = (user) =>
-  jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "1h" });
+  jwt.sign({ userId: user._id, version: user.sessionVersion || 0 }, process.env.JWT_SECRET, { expiresIn: "1h", issuer: "postdate", audience: "postdate-web" });
 
-const as = (user) => ({ Authorization: `Bearer ${tokenFor(user)}` });
+const as = (user) => ({ Cookie: `postdate=${tokenFor(user)}` });
 
 async function makeRating(reviewer, reviewed, overall = 4, comment = "Nice evening") {
   return Rating.create({
@@ -173,7 +161,7 @@ describe("access control", () => {
     const admin = await makeUser({ role: "admin" });
     const token = tokenFor(admin); // minted while still an admin
     await User.updateOne({ _id: admin._id }, { role: "user" });
-    const res = await request(app).get("/api/admin/users").set("Authorization", `Bearer ${token}`);
+    const res = await request(app).get("/api/admin/users").set("Cookie", `postdate=${token}`);
     expect(res.status).toBe(403);
   });
 });
@@ -816,4 +804,15 @@ describe("mod activity", () => {
     expect(junk.status).toBe(200);
     expect(junk.body.rows).toHaveLength(2);
   });
+});
+
+
+test("suspension permanently revokes prior sessions even after reinstatement", async () => {
+  const admin = await makeUser({ role: "admin" });
+  const member = await makeUser();
+  const oldCookie = as(member);
+  await request(app).post(`/api/admin/users/${member._id}/suspend`).set(as(admin)).send({ reason: "Account protection" }).expect(200);
+  await request(app).post(`/api/admin/users/${member._id}/reinstate`).set(as(admin)).expect(200);
+  await request(app).get("/api/auth/session").set(oldCookie).expect(401);
+  await request(app).post("/api/auth/login").send({ email: member.email, password: PASSWORD }).expect(200);
 });

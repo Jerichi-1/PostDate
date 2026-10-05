@@ -23,7 +23,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const User = require("../models/User");
 const { isValidEmail } = require("../utils/validators");
 
-const SALT_ROUNDS = 10; // keep in step with authController.js
+const SALT_ROUNDS = 12; // keep in step with authController.js
 const MIN_STAFF_PASSWORD = 12; // staff accounts hold more power, so a longer minimum than members' 8
 
 function parseArgs(argv) {
@@ -63,8 +63,9 @@ async function main() {
 
   await mongoose.connect(process.env.MONGO_URI);
 
-  const existing = await User.findOne({ email });
+  const existing = await User.findOne({ email }).select("+sessionVersion");
   if (existing) {
+    existing.sessionVersion = (existing.sessionVersion || 0) + 1;
     existing.role = role;
     existing.isVerified = true;
     existing.isActive = true;
@@ -72,7 +73,7 @@ async function main() {
     existing.suspensionReason = "";
     existing.suspendedBy = null;
     await existing.save();
-    console.log(`✔ ${email} already existed — now a ${role}. Password left unchanged.`);
+    console.log(`Updated existing staff account to ${role}.`);
     return;
   }
 
@@ -81,7 +82,7 @@ async function main() {
 
   let password = args.password === true ? "" : args.password || process.env.ADMIN_PASSWORD || "";
   if (!password) password = await promptHidden("Password (min 12 characters): ");
-  if (String(password).length < MIN_STAFF_PASSWORD) {
+  if (String(password).length < MIN_STAFF_PASSWORD || Buffer.byteLength(String(password), "utf8") > 72) {
     throw new Error(`Staff passwords need at least ${MIN_STAFF_PASSWORD} characters.`);
   }
 
@@ -93,12 +94,12 @@ async function main() {
     role,
     isVerified: true, // staff skip the email-code step; there's no sign-up flow for them
   });
-  console.log(`✔ Created ${role} ${email}. Log in at /login and you'll land on /${role}.`);
+  console.log(`Created ${role} account.`);
 }
 
 main()
   .catch((err) => {
-    console.error(`✘ ${err.message}`);
+    console.error("Staff account setup failed. Check configuration and input.");
     process.exitCode = 1;
   })
   .finally(() => mongoose.disconnect());

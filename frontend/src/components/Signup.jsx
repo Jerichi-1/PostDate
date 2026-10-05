@@ -81,7 +81,7 @@ function Signup() {
                   step={3}
                   onConfirm={(tags) => {
                     const fullSignup = { ...signupData, tags };
-                    console.log("Ready to submit:", fullSignup);
+                    // Credentials must never be logged.
                     // TODO: send it to your backend, e.g.
                     // api.post("/signup", fullSignup).then(() => navigate("/welcome"));
                   }}

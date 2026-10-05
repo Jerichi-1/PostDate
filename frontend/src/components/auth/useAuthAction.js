@@ -32,7 +32,7 @@ export default function useAuthAction() {
     try {
       await action();
     } catch (err) {
-      if (!err?.response) console.error("[auth]", err);
+
       const message =
         typeof failureMessage === "function" ? failureMessage(err) : failureMessage;
       setError(err?.response ? message : NETWORK_MESSAGE);

@@ -35,12 +35,13 @@ const MULTER_MESSAGES = {
 /**
  * Central error handler. Must be the LAST app.use() in server.js.
  *
- * Always logs the real error server-side, but only ever sends a generic
+ * Logs only a fixed event label and sends a generic
  * message to the client for anything that isn't a known, safe-to-describe
  * error shape — never a stack trace, a file path, or a raw driver message.
  */
 function errorHandler(err, req, res, next) {
-  console.error(`[error] ${req.method} ${req.originalUrl}:`, err);
+  // Never log bodies, query strings, driver errors or exception messages.
+  console.error("[request] failed");
 
   if (res.headersSent) return next(err);
 
@@ -74,8 +75,8 @@ function errorHandler(err, req, res, next) {
     return res.status(400).json({ message: "Only JPG, PNG, WEBP or GIF images are allowed" });
   }
 
-  const status = err.status || err.statusCode || 500;
-  const message = status < 500 ? err.message || "Invalid request" : "Something went wrong";
+  const status = [400, 401, 403, 404, 409, 413, 429].includes(err.status || err.statusCode) ? (err.status || err.statusCode) : 500;
+  const message = status < 500 ? "Invalid request" : "Something went wrong";
   res.status(status).json({ message });
 }
 

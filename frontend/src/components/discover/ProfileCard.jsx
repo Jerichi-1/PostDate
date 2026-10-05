@@ -87,7 +87,7 @@ export default function ProfileCard({ profile, onOpen }) {
           {name}, {age}
         </span>
         <span className="pcard-sub">
-          <span>{distanceMi} mi</span>
+          <span>{Number.isFinite(distanceMi) ? `${distanceMi} mi` : "Distance not shared"}</span>
           <span aria-hidden="true">·</span>
           <span>{gender}</span>
         </span>

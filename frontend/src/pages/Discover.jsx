@@ -17,7 +17,7 @@
  * Clicking a card opens <ProfileModal> over a blurred backdrop — see that
  * component's confidence note for how that maps to the Figma.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import AppNav from "../components/AppNav";
 import PageBanner from "../components/discover/PageBanner";
@@ -28,51 +28,67 @@ import DiscoverFooter from "../components/discover/DiscoverFooter";
 
 import { getDiscoverProfiles, likeProfile, passProfile } from "../services/postdateApi";
 
-const DEFAULT_FILTERS = { gender: "Any", maxDistance: 50, minAge: 18, maxAge: 60 };
+const DEFAULT_FILTERS = { gender: "Any", minAge: 18, maxAge: 60 };
 
 export default function Discover() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [nextCursor, setNextCursor] = useState(null);
   const [selected, setSelected] = useState(null);
+  const generation = useRef(0);
 
   /* 🔌 BACKEND: GET /api/discover — see services/postdateApi.js.
      Re-fetches whenever the search text or filters change. Once the real
      route is live, send `query` and `filters` straight through as params
      (already wired below) so the server does the filtering. */
   useEffect(() => {
+    generation.current += 1;
     let cancelled = false;
     setLoading(true);
+    setError("");
+    setProfiles([]);
+    setNextCursor(null);
 
-    getDiscoverProfiles({ query, ...filters })
-      .then((data) => !cancelled && setProfiles(data))
-      .finally(() => !cancelled && setLoading(false));
+    const timer = setTimeout(() => getDiscoverProfiles({ query, ...filters })
+      .then((data) => {
+        if (!cancelled) { setProfiles(data.profiles); setNextCursor(data.nextCursor); }
+      })
+      .catch(() => !cancelled && setError("Could not load profiles. Please try again."))
+      .finally(() => !cancelled && setLoading(false)), 250);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [query, filters]);
 
-  /* The mock endpoint above always returns everyone, so filter client-side
-     for now — delete this once getDiscoverProfiles() does it server-side. */
-  const visible = useMemo(() => {
-    return profiles.filter((p) => {
-      const matchesQuery = p.name.toLowerCase().includes(query.toLowerCase());
-      const matchesGender = filters.gender === "Any" || p.gender === filters.gender;
-      const matchesDistance = p.distanceMi <= filters.maxDistance;
-      const matchesAge = p.age >= filters.minAge && p.age <= filters.maxAge;
-      return matchesQuery && matchesGender && matchesDistance && matchesAge;
-    });
-  }, [profiles, query, filters]);
-
+  const visible = profiles;
+  async function loadMore() {
+    if (loading || !nextCursor) return;
+    setLoading(true);
+    setError("");
+    const activeGeneration = generation.current;
+    try {
+      const data = await getDiscoverProfiles({ query, ...filters, cursor: nextCursor });
+      if (activeGeneration !== generation.current) return;
+      setProfiles((items) => [...items, ...data.profiles]);
+      setNextCursor(data.nextCursor);
+    } catch { if (activeGeneration === generation.current) setError("Could not load more profiles. Please try again."); }
+    finally { if (activeGeneration === generation.current) setLoading(false); }
+  }
   async function handleLike(profile) {
-    await likeProfile(profile.id);
+    const result = await likeProfile(profile.id);
+    setProfiles((items) => items.filter((item) => item.id !== profile.id));
+    setNotice(result.matched ? "It's a match! Open match history to see it." : "Like saved.");
     setSelected(null);
   }
-
   async function handlePass(profile) {
     await passProfile(profile.id);
+    setProfiles((items) => items.filter((item) => item.id !== profile.id));
     setSelected(null);
   }
 
@@ -128,11 +144,13 @@ export default function Discover() {
           onFilters={setFilters}
         />
 
-        {loading && <p className="discover-status">Finding people near you…</p>}
+        {error && <p className="discover-status" role="alert">{error}</p>}
+        {notice && <p className="discover-status" role="status">{notice}</p>}
+        {loading && <p className="discover-status">Finding profiles…</p>}
 
         {!loading && visible.length === 0 && (
           <p className="discover-status">
-            Nobody matches those filters yet. Try widening the distance or age range.
+            Nobody matches those filters yet. Try widening the age range.
           </p>
         )}
 
@@ -147,6 +165,7 @@ export default function Discover() {
             ))}
           </div>
         )}
+        {nextCursor && <button type="button" onClick={loadMore} disabled={loading}>Load more profiles</button>}
       </main>
 
       <DiscoverFooter />
