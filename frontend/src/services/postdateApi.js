@@ -32,8 +32,8 @@
    verifyCode, getProfile, getTasteOptions, saveProfileTags, saveLookingFor,
    uploadProfilePhotos, deleteProfilePhoto and setProfileAvatar are REAL — they
    call the backend against Mongo. Everything else below the EMAIL
-   VERIFICATION section (recovery, discover, admin), plus updateProfileDetails,
-   is still mock data/behaviour.
+   VERIFICATION section (recovery, discover, admin), plus updateProfileDetails
+   and getMatchHistory, is still mock data/behaviour.
    ========================================================================== */
 
 import api, { API_ORIGIN } from "../api";
@@ -496,6 +496,68 @@ export async function setProfileAvatar(photoPath) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   MATCH HISTORY  (components/MatchHistory.jsx — the clock in the AppNav header)
+   ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Backend match-history response -> what components/MatchHistory.jsx draws.
+ * The backend sends photo PATHS ("/uploads/x.jpg", or null) like it does for
+ * every other photo, and they become loadable URLs here via toPhotoUrl(), so
+ * the component only ever deals with `avatarUrl`. The mock goes through this
+ * too, which means swapping in the real call changes nothing downstream.
+ */
+function mapMatchHistoryResponse({ me, matches = [], nextCursor = null } = {}) {
+  return {
+    me: me ? { name: me.name, avatarUrl: toPhotoUrl(me.avatarPath) } : null,
+    matches: matches.map((m) => ({
+      id: m.id,
+      matchedAt: m.matchedAt,
+      reviewed: Boolean(m.reviewed),
+      partner: {
+        id: m.partner?.id,
+        name: m.partner?.name,
+        avatarUrl: toPhotoUrl(m.partner?.avatarPath),
+      },
+    })),
+    nextCursor,
+  };
+}
+
+/**
+ * The signed-in user's matches, newest first, one page at a time. Feeds the
+ * match-history dropdown in the header (components/MatchHistory.jsx), which
+ * only asks for it when the clock is opened — not on page load.
+ * @route  GET /api/matches/history?cursor=&limit=
+ * @param  {{ cursor?: string | null, limit?: number }} params
+ *         `cursor` is whatever the previous page returned as nextCursor;
+ *         leave it out for the first page.
+ * @returns {{
+ *   me: { name: string, avatarUrl: string | null },
+ *   matches: {
+ *     id: string,                 Match _id
+ *     matchedAt: string,          Match.createdAt, ISO
+ *     reviewed: boolean,          true if this user already rated that person
+ *     partner: { id: string, name: string, avatarUrl: string | null },
+ *   }[],
+ *   nextCursor: string | null,    null on the last page
+ * }}
+ * 🔌 The route doesn't exist yet. What the BACKEND should send is the same
+ * shape with `avatarPath` (a raw "/uploads/..." path) in place of each
+ * `avatarUrl` — mapMatchHistoryResponse above converts it. Suggested query:
+ * Match.find({ $or: [{ user1: me }, { user2: me }], status: "active" }) sorted
+ * by createdAt desc, the other user's Profile.profileName (falling back to
+ * their first name) and Profile.avatar for `partner`.
+ * ⚠️ Work out `reviewed` from Rating.exists({ reviewerId: me, reviewedUserId:
+ * partner }), NOT from matchId: Rating has a unique index on that pair, so a
+ * rematched pair could otherwise show a REVIEW button that can never save.
+ */
+export async function getMatchHistory({ cursor = null, limit = 8 } = {}) {
+  // const { data } = await api.get("/matches/history", { params: { cursor, limit } });
+  // return mapMatchHistoryResponse(data);
+  return delay(mapMatchHistoryResponse(mockMatchPage(cursor, limit)));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    ADMIN / MODERATOR DASHBOARD
    ───────────────────────────────────────────────────────────────────────── */
 
@@ -569,6 +631,35 @@ const MOCK_DISCOVER_PROFILES = [
   { id: "u17", name: "Ash", age: 28, distanceMi: 9, gender: "Non-binary", photoUrl: null, bio: "Cooking elaborate dinners for one, happy to make it two." },
   { id: "u18", name: "Delilah", age: 30, distanceMi: 4, gender: "Woman", photoUrl: null, bio: "Live music most weeks. Front row or not at all." },
 ];
+
+/* 26 fake matches, three days apart, so the match-history infinite scroll has
+   something to scroll. Every third one is already reviewed. Shaped like what
+   the BACKEND will send (avatarPath, not avatarUrl) — getMatchHistory runs it
+   through mapMatchHistoryResponse, exactly as it will the real response. */
+const MOCK_MATCH_NAMES = [
+  "Priya", "Jordan", "Maya", "Lena", "Theo", "Nina", "Marcus",
+  "Yuki", "Casey", "Isabel", "Owen", "Zoe", "Ravi",
+];
+const MOCK_MATCHES = Array.from({ length: 26 }, (_, i) => ({
+  id: `m${i + 1}`,
+  matchedAt: new Date(Date.UTC(2026, 8, 27) - i * 3 * 86400000).toISOString(),
+  reviewed: i % 3 === 1,
+  partner: {
+    id: `u${i + 1}`,
+    name: MOCK_MATCH_NAMES[i % MOCK_MATCH_NAMES.length],
+    avatarPath: null, // null → the salmon circle
+  },
+}));
+
+function mockMatchPage(cursor, limit) {
+  const start = Number(cursor) || 0;
+  const end = start + limit;
+  return {
+    me: { name: "Alex", avatarPath: null },
+    matches: MOCK_MATCHES.slice(start, end),
+    nextCursor: end < MOCK_MATCHES.length ? String(end) : null,
+  };
+}
 
 const MOCK_ADMIN_SECTIONS = {
   statistics: {

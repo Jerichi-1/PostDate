@@ -1,8 +1,8 @@
 /**
  * AppNav
- * The *logged-in* header: wordmark on the left, and a maroon rounded pill on
- * the right holding HOME / MESSAGES / PROFILE. Whichever route is open turns
- * salmon. Matches Figma "Rectangle 89".
+ * The *logged-in* header: wordmark on the left, then the match-history clock
+ * and a maroon rounded pill on the right holding HOME / MESSAGES / PROFILE.
+ * Whichever route is open turns salmon. Matches Figma "Rectangle 89".
  *
  * Usage:
  *   <AppNav />
@@ -10,6 +10,7 @@
  */
 import { NavLink } from "react-router-dom";
 import Wordmark from "./Wordmark";
+import MatchHistory from "./MatchHistory";
 
 /* 🎛️ EDIT THE MENU HERE --------------------------------------------------- */
 const DEFAULT_LINKS = [
@@ -23,6 +24,9 @@ export default function AppNav({ links = DEFAULT_LINKS }) {
     <header className="appnav">
       <style>{`
         .appnav {
+          /* the match-history panel pins itself to this on phones */
+          position: relative;
+
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -30,6 +34,13 @@ export default function AppNav({ links = DEFAULT_LINKS }) {
           flex-wrap: wrap;
           padding: clamp(10px, 1.4vw, 20px) var(--pd-gutter);
           border-bottom: 1px solid var(--pd-white);
+        }
+
+        /* clock + pill, side by side */
+        .appnav-right {
+          display: flex;
+          align-items: center;
+          gap: clamp(8px, 1vw, 20px);   /* 🎛️ space between the clock and the pill */
         }
 
         .appnav-pill {
@@ -68,13 +79,17 @@ export default function AppNav({ links = DEFAULT_LINKS }) {
 
       <Wordmark to="/discover" />
 
-      <nav className="appnav-pill" aria-label="Main">
-        {links.map(({ label, to }) => (
-          <NavLink key={to} to={to}>
-            {label}
-          </NavLink>
-        ))}
-      </nav>
+      <div className="appnav-right">
+        <MatchHistory />
+
+        <nav className="appnav-pill" aria-label="Main">
+          {links.map(({ label, to }) => (
+            <NavLink key={to} to={to}>
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
     </header>
   );
 }
